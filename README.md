@@ -1,15 +1,16 @@
-# 🔌 Multipartition Mounting Script for Debian 12
+# 🔌 ADAO - Multipartition Mounting Script for Debian 12
 
 ## 📝 Descrição
 
+Adão, comeu a maçã!
 Script avançado de montagem de partições para Debian 12, projetado para gerenciar múltiplos sistemas de arquivos com robustez, segurança e facilidade de uso.
 
 ## ✨ Recursos Principais
 
 ### 🌟 Suporte a Múltiplos Sistemas de Arquivos
 - HFS+ (Apple)
-- NTFS (Windows)
 - APFS (Apple)
+- NTFS (Windows)
 - Ext4 (Linux)
 
 ### 🔍 Descoberta Dinâmica de Módulos
