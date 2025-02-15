@@ -334,11 +334,7 @@ montar_particao() {
             modulo_fs_path=$(descobrir_modulo "ext4")
             ;;
         "exfat")
-            # Verificar se exfat-fuse está instalado
-            if ! command -v mount.exfat-fuse &>/dev/null && ! command -v mount.exfat &>/dev/null; then
-                log "ERRO" "❌ Suporte a exFAT não instalado"
-                return 1
-            fi
+            instalar_pacotes_exfat || return 1
             ;;
         *)
             log "ERRO" "❌ Tipo de sistema de arquivos não suportado: $tipo_fs"
@@ -1330,185 +1326,254 @@ montar_discos_compartilhados() {
 }
 
 instalar_pacotes_exfat() {
-    log "INFO" "🔧 Verificando e instalando pacotes para suporte a exFAT..."
+    log "INFO" "📦 Verificando e instalando pacotes para suporte exFAT..."
     
-    # Verificar se os pacotes estão instalados
-    if ! dpkg -s exfat-fuse &>/dev/null || ! dpkg -s exfat-utils &>/dev/null; then
-        log "AVISO" "⚠️ Pacotes exFAT não encontrados. Instalando..."
-        
-        # Atualizar repositórios
-        apt-get update &>/dev/null
-        
-        # Instalar pacotes
-        if apt-get install -y exfat-fuse exfat-utils &>/dev/null; then
-            log "SUCESSO" "✅ Pacotes exFAT instalados com sucesso!"
-        else
-            log "ERRO" "❌ Falha ao instalar pacotes exFAT. Por favor, instale manualmente."
-            return 1
+    # Atualizar repositórios com opções mais conservadoras
+    apt-get update -o Acquire::ForceHash=yes
+
+    # Pacotes necessários para exFAT
+    local pacotes_exfat=(
+        "fuse"
+        "exfat-fuse"
+    )
+    
+    # Tentar instalar via apt com opções conservadoras
+    for pacote in "${pacotes_exfat[@]}"; do
+        if ! dpkg -s "$pacote" &> /dev/null; then
+            log "AVISO" "🔧 Instalando $pacote..."
+            
+            # Tentar instalar com opções de compatibilidade
+            apt-get install -y --no-install-recommends --force-yes "$pacote" || 
+            apt-get install -y -f ||
+            { 
+                log "ERRO" "❌ Falha ao instalar $pacote"
+                return 1
+            }
         fi
-    else
-        log "INFO" "✅ Pacotes exFAT já estão instalados"
+    done
+
+    # Verificar se os comandos de montagem estão disponíveis
+    if ! command -v mount.exfat-fuse &> /dev/null; then
+        log "AVISO" "🔧 Tentando instalar mount.exfat-fuse manualmente..."
+        
+        # Método alternativo de instalação
+        if [ -f /etc/apt/sources.list ]; then
+            # Adicionar repositório se necessário
+            grep -q "contrib" /etc/apt/sources.list || 
+            sed -i 's/main/main contrib/g' /etc/apt/sources.list
+        fi
+        
+        apt-get update
+        apt-get install -y --no-install-recommends exfat-fuse exfat-utils ||
+        apt-get install -y -f
     fi
+
+    # Carregar módulo FUSE de forma mais robusta
+    modprobe fuse 2>/dev/null || 
+    { 
+        log "AVISO" "🔧 Tentando carregar módulo FUSE manualmente..."
+        insmod /lib/modules/$(uname -r)/kernel/fs/fuse/fuse.ko 2>/dev/null
+    }
 }
 
-# Função para montar partições com verificações detalhadas
 montar_particao() {
     local dispositivo="$1"
     local tipo_fs="$2"
+    local ponto_montagem="$3"
     
-    # Validações iniciais
-    if [ -z "$dispositivo" ] || [ -z "$tipo_fs" ]; then
-        log "ERRO" "❌ Dispositivo ou tipo de sistema de arquivos não especificado"
-        return 1
-    fi
-
     # Verificar se o dispositivo existe
-    if [ ! -b "$dispositivo" ]; then
-        log "ERRO" "❌ Dispositivo $dispositivo não existe ou não é um dispositivo de bloco"
+    if [[ ! -b "$dispositivo" ]]; then
+        log "ERRO" "❌ Dispositivo $dispositivo não encontrado"
         return 1
     fi
-
-    # Tratamento especial para APFS
-    if [ "$tipo_fs" == "apfs" ]; then
-        # Solicitar ponto de montagem
-        local ponto_montagem
-        ponto_montagem=$(solicitar_ponto_montagem "$tipo_fs" "$dispositivo")
-
-        # Criar ponto de montagem se não existir
-        mkdir -p "$ponto_montagem"
-
-        # Verificar permissões de escrita no ponto de montagem
-        if [ ! -w "$ponto_montagem" ]; then
-            log "ERRO" "❌ Sem permissões de escrita em $ponto_montagem"
-            return 1
-        fi
-
-        # Montar usando função específica para APFS
-        montar_particao_apfs "$dispositivo" "$ponto_montagem"
-        return $?
-    fi
-
-    # Identificar módulo do sistema de arquivos
-    local modulo_fs_path=""
-    case "$tipo_fs" in
-        "ntfs")
-            modulo_fs_path=$(descobrir_modulo "ntfs")
-            ;;
-        "hfsplus")
-            modulo_fs_path=$(descobrir_modulo "hfsplus")
-            ;;
-        "ext4")
-            modulo_fs_path=$(descobrir_modulo "ext4")
-            ;;
-        "exfat")
-            instalar_pacotes_exfat || return 1
-            ;;
-        *)
-            log "ERRO" "❌ Tipo de sistema de arquivos não suportado: $tipo_fs"
-            return 1
-            ;;
-    esac
-
-    # Verificar módulo para sistemas de arquivos que não são APFS ou exFAT
-    if [[ "$tipo_fs" != "apfs" && "$tipo_fs" != "exfat" ]] && [ -z "$modulo_fs_path" ]; then
-        log "ERRO" "❌ Módulo para $tipo_fs não encontrado"
-        return 1
-    fi
-
-    # Carregar módulo para sistemas de arquivos que não são APFS ou exFAT
-    if [[ "$tipo_fs" != "apfs" && "$tipo_fs" != "exfat" ]]; then
-        carregar_modulo "$modulo_fs_path" || return 1
-    fi
-
-    # Solicitar ponto de montagem
-    local ponto_montagem
-    ponto_montagem=$(solicitar_ponto_montagem "$tipo_fs" "$dispositivo")
-
+    
     # Criar ponto de montagem se não existir
     mkdir -p "$ponto_montagem"
-
-    # Verificar permissões de escrita no ponto de montagem
-    if [ ! -w "$ponto_montagem" ]; then
-        log "ERRO" "❌ Sem permissões de escrita em $ponto_montagem"
-        return 1
-    fi
-
-    # Verificar se já está montado
+    chmod 777 "$ponto_montagem"
+    
+    # Opções de montagem seguras e compatíveis
+    local opcoes_montagem="rw,noatime,nodev,nosuid,uid=1000,gid=1000"
+    
+    # Verificar se o dispositivo já está montado
     if mount | grep -q "$dispositivo"; then
         log "AVISO" "⚠️ $dispositivo já está montado"
         return 1
     fi
-
-    # Opções de montagem
-    local mount_options="rw,noatime,utf8"
     
-    # Tentar montar com diferentes métodos
-    local mount_output=""
-    local mount_status=1
-
-    # Método de montagem específico para cada tipo de sistema de arquivos
+    # Instalar pacotes específicos para o tipo de filesystem
     case "$tipo_fs" in
-        "ntfs")
-            # Método 1: Montagem padrão
-            mount_output=$(mount -t "$tipo_fs" -o "$mount_options" "$dispositivo" "$ponto_montagem" 2>&1)
-            mount_status=$?
-
-            # Método 2: NTFS específico
-            if [ $mount_status -ne 0 ]; then
-                log "AVISO" "🔧 Tentando montagem NTFS alternativa..."
-                mount_output=$(mount -t ntfs-3g -o "$mount_options" "$dispositivo" "$ponto_montagem" 2>&1)
-                mount_status=$?
+        exfat)
+            instalar_pacotes_exfat
+            
+            # Tentar montar com diferentes métodos
+            if command -v mount.exfat-fuse &> /dev/null; then
+                mount.exfat-fuse "$dispositivo" "$ponto_montagem" -o "$opcoes_montagem" 2>/dev/null && {
+                    log "SUCESSO" "✅ Montado $dispositivo em $ponto_montagem (exFAT via exfat-fuse)"
+                    return 0
+                }
             fi
+            
+            # Método alternativo
+            mount -t exfat "$dispositivo" "$ponto_montagem" -o "$opcoes_montagem" 2>/dev/null && {
+                log "SUCESSO" "✅ Montado $dispositivo em $ponto_montagem (exFAT via mount)"
+                return 0
+            }
             ;;
-        
-        "exfat")
-            # Montagem usando mount.exfat-fuse ou mount.exfat
-            if command -v mount.exfat-fuse &>/dev/null; then
-                mount_output=$(mount.exfat-fuse -o "$mount_options" "$dispositivo" "$ponto_montagem" 2>&1)
-            elif command -v mount.exfat &>/dev/null; then
-                mount_output=$(mount.exfat -o "$mount_options" "$dispositivo" "$ponto_montagem" 2>&1)
-            else
-                log "ERRO" "❌ Nenhum comando de montagem exFAT encontrado"
-                return 1
-            fi
-            mount_status=$?
+        ntfs)
+            # Garantir instalação do ntfs-3g
+            apt-get install -y --no-install-recommends ntfs-3g
+            
+            # Desmontar primeiro se estiver montado
+            umount "$dispositivo" 2>/dev/null
+            
+            # Tentar montar NTFS
+            mount -t ntfs-3g "$dispositivo" "$ponto_montagem" -o "$opcoes_montagem" 2>/dev/null && {
+                log "SUCESSO" "✅ Montado $dispositivo em $ponto_montagem (NTFS)"
+                return 0
+            }
+            
+            # Método alternativo
+            ntfs-3g "$dispositivo" "$ponto_montagem" -o "$opcoes_montagem" 2>/dev/null && {
+                log "SUCESSO" "✅ Montado $dispositivo em $ponto_montagem (NTFS via ntfs-3g)"
+                return 0
+            }
             ;;
-        
+        # Adicionar outros tipos de filesystem conforme necessário
         *)
-            # Montagem padrão para outros sistemas de arquivos
-            mount_output=$(mount -t "$tipo_fs" -o "$mount_options" "$dispositivo" "$ponto_montagem" 2>&1)
-            mount_status=$?
+            log "ERRO" "❌ Tipo de filesystem $tipo_fs não suportado"
+            return 1
             ;;
     esac
+    
+    log "ERRO" "❌ Falha ao montar $dispositivo"
+    return 1
+}
 
-    # Verificar resultado da montagem
-    if [ $mount_status -eq 0 ]; then
-        log "SUCESSO" "✅ Partição $dispositivo montada em $ponto_montagem"
-        return 0
-    else
-        # Log detalhado de erro
-        log "ERRO" "❌ Falha ao montar $dispositivo"
-        log "ERRO" "📝 Detalhes do erro:"
-        log "ERRO" "$mount_output"
-
-        # Verificar possíveis causas comuns
-        if [ ! -b "$dispositivo" ]; then
-            log "ERRO" "🚫 O dispositivo não existe ou não é um dispositivo de bloco"
-        elif [ ! -r "$dispositivo" ]; then
-            log "ERRO" "🔒 Sem permissões de leitura para o dispositivo"
+montar_discos_compartilhados() {
+    log "INFO" "🔍 Iniciando montagem de discos compartilhados..."
+    
+    # Instalar pacotes necessários globalmente
+    instalar_pacotes_exfat
+    apt-get install -y ntfs-3g
+    
+    # Dispositivos a serem montados
+    local dispositivos=(
+        "/dev/sdb1"
+        "/dev/sdc1"
+    )
+    
+    local total_discos=0
+    local discos_montados=0
+    local discos_ignorados=0
+    
+    for dispositivo in "${dispositivos[@]}"; do
+        # Verificar se o dispositivo existe
+        if [[ ! -b "$dispositivo" ]]; then
+            log "AVISO" "⏩ Dispositivo $dispositivo não encontrado"
+            ((discos_ignorados++))
+            continue
         fi
-
-        # Verificar sistema de arquivos
-        local fs_type
-        fs_type=$(blkid -o value -s TYPE "$dispositivo")
-        if [ -z "$fs_type" ]; then
-            log "ERRO" "❓ Não foi possível determinar o tipo de sistema de arquivos"
-        elif [ "$fs_type" != "$tipo_fs" ]; then
-            log "AVISO" "⚠️ Tipo de sistema de arquivos detectado: $fs_type (esperado: $tipo_fs)"
+        
+        # Desmontar primeiro
+        umount "$dispositivo" 2>/dev/null
+        
+        # Detectar tipo de filesystem
+        local tipo_fs
+        tipo_fs=$(blkid -o value -s TYPE "$dispositivo")
+        
+        # Definir ponto de montagem
+        local nome_disco
+        case "$dispositivo" in
+            "/dev/sdb1") nome_disco="disco1" ;;
+            "/dev/sdc1") nome_disco="disco2" ;;
+            *) nome_disco="sistema" ;;
+        esac
+        
+        local ponto_montagem="/home/jonasrafael/discos/$nome_disco"
+        
+        # Tentar montar
+        if montar_particao "$dispositivo" "$tipo_fs" "$ponto_montagem"; then
+            ((discos_montados++))
+        else
+            ((discos_ignorados++))
         fi
+        
+        ((total_discos++))
+    done
+    
+    log "INFO" "📊 Resumo de montagem de discos compartilhados:"
+    log "INFO" "🖥️ Total de discos encontrados: $total_discos"
+    log "INFO" "✅ Discos montados: $discos_montados"
+    log "INFO" "⚠️ Discos ignorados: $discos_ignorados"
+}
 
-        return 1
-    fi
+# Função para desmontar pontos de montagem existentes
+desmontar_pontos_montagem_existentes() {
+    log "INFO" "🔄 Verificando e desmontando pontos de montagem existentes..."
+    
+    # Garantir que o diretório base existe
+    mkdir -p "/home/jonasrafael/discos"
+    
+    # Lista de diretórios e dispositivos para desmontar
+    local diretorios_para_desmontar=(
+        "/mnt/compartilhados"
+        "/mnt/compartilhados/sdc"
+        "/mnt/compartilhados/sdc1"
+        "/home/jonasrafael/discos"
+    )
+
+    local dispositivos_para_desmontar=(
+        "/dev/sdc1"
+        "/dev/sdc"
+        "/dev/sdb1"
+    )
+
+    # Desmontar diretórios
+    for dir in "${diretorios_para_desmontar[@]}"; do
+        # Verificar se o diretório está montado
+        if mountpoint -q "$dir" || mount | grep -q "$dir"; then
+            log "AVISO" "🔌 Tentando desmontar $dir..."
+            
+            # Sequência de tentativas de desmontagem
+            umount "$dir" 2>/dev/null ||
+            umount -f "$dir" 2>/dev/null ||
+            umount -l "$dir" 2>/dev/null ||
+            { 
+                log "ERRO" "❌ Falha ao desmontar $dir" 
+                fuser -km "$dir" 2>/dev/null  # Forçar desconexão de processos
+            }
+        fi
+    done
+
+    # Desmontar dispositivos específicos
+    for dispositivo in "${dispositivos_para_desmontar[@]}"; do
+        if mount | grep -q "$dispositivo"; then
+            log "AVISO" "🔌 Tentando desmontar dispositivo $dispositivo..."
+            
+            # Sequência de tentativas de desmontagem
+            umount "$dispositivo" 2>/dev/null ||
+            umount -f "$dispositivo" 2>/dev/null ||
+            umount -l "$dispositivo" 2>/dev/null ||
+            { 
+                log "ERRO" "❌ Falha ao desmontar $dispositivo" 
+                fuser -km "$dispositivo" 2>/dev/null  # Forçar desconexão de processos
+            }
+        fi
+    done
+
+    # Limpar entradas antigas do fstab relacionadas a esses dispositivos
+    sed -i '/sdc1/d' /etc/fstab 2>/dev/null
+    sed -i '/sdb1/d' /etc/fstab 2>/dev/null
+
+    # Criar subdiretórios para discos
+    local disk_names=("sistema" "disco1" "disco2" "disco3" "disco4" "disco5")
+    for disk_name in "${disk_names[@]}"; do
+        mkdir -p "/home/jonasrafael/discos/$disk_name"
+        chmod 777 "/home/jonasrafael/discos/$disk_name"
+    done
+
+    # Recarregar tabela de partições
+    partprobe 2>/dev/null
 }
 
 # Função principal
@@ -1520,6 +1585,9 @@ main() {
         log "ERRO" "❌ Este script deve ser executado com sudo ou como root"
         exit 1
     fi
+
+    # Desmontar pontos de montagem existentes antes de começar
+    desmontar_pontos_montagem_existentes
 
     # Montar discos compartilhados
     montar_discos_compartilhados
