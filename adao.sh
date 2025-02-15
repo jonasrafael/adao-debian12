@@ -1,5 +1,46 @@
 #!/bin/bash
 
+# ╔═══════════════════════════════════════════════════════════════════════════╗
+# ║                               ADÃO SCRIPT                                ║
+# ║ "Porque ele comeu a maçã e pulou a janela" - Montagem Inteligente de     ║
+# ║                        Dispositivos de Armazenamento                     ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║ Versão:           1.0.0                                                  ║
+# ║ Autor:           Jonas Rafael                                            ║
+# ║ Última Atualização: 15 de Fevereiro de 2025                              ║
+# ║ Licença:         MIT                                                     ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║ Descrição:                                                               ║
+# ║ Script avançado para montagem automática e inteligente de dispositivos   ║
+# ║ de armazenamento com suporte a múltiplos sistemas de arquivos.           ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║ Recursos Principais:                                                     ║
+# ║ - Suporte a exFAT, NTFS, HFS+, APFS                                      ║
+# ║ - Montagem dinâmica de partições                                         ║
+# ║ - Tratamento de erros robusto                                            ║
+# ║ - Logging detalhado                                                      ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║ Dependências:                                                            ║
+# ║ - bash                                                                   ║
+# ║ - mount                                                                  ║
+# ║ - blkid                                                                  ║
+# ║ - ntfs-3g                                                                ║
+# ║ - exfat-fuse                                                             ║
+# ╠═══════════════════════════════════════════════════════════════════════════╣
+# ║ Uso:                                                                     ║
+# ║ sudo ./adao.sh                                                           ║
+# ╚═══════════════════════════════════════════════════════════════════════════╝
+
+# Variáveis globais de configuração e versão
+SCRIPT_NOME="Adao"
+SCRIPT_VERSAO="1.0.0"
+SCRIPT_DATA_ATUALIZACAO="2025-02-15"
+
+# Verificações de segurança e configurações iniciais
+set -o errexit   # Sair imediatamente se um comando falhar
+set -o nounset   # Tratar variáveis não definidas como erro
+set -o pipefail  # Retornar valor de erro em pipelines
+
 # Montar Particoes Script for Debian 12
 # Autor: Jonas Rafael
 # Data: 2025-02-15
@@ -671,784 +712,93 @@ atualizar_fstab() {
     # Gerar entradas para /etc/fstab
     log "INFO" "📝 Gerando entradas para /etc/fstab..."
     
-    # Criar backup do fstab original
-    cp /etc/fstab /etc/fstab.backup
-
-    # Encontrar e adicionar partições montadas
-    mount | while read -r linha; do
-        # Extrair dispositivo e ponto de montagem
-        local dispositivo=$(echo "$linha" | awk '{print $1}')
-        local ponto_montagem=$(echo "$linha" | awk '{print $3}')
-        local tipo_fs=$(echo "$linha" | awk '{print $5}')
-
-        # Verificar se o ponto de montagem está em /home/jonasrafael/discos
-        if [[ "$ponto_montagem" == /home/jonasrafael/discos/* ]]; then
-            # Obter UUID do dispositivo
-            local uuid=$(blkid -o value -s UUID "$dispositivo")
-            
-            if [ -n "$uuid" ]; then
-                # Opções padrão de montagem
-                local opcoes="rw,noatime,utf8"
-                
-                # Adicionar entrada ao fstab
-                echo "UUID=$uuid $ponto_montagem $tipo_fs $opcoes 0 2" >> /etc/fstab
-                log "INFO" "✅ Adicionada entrada para $dispositivo em $ponto_montagem"
-            fi
-        fi
-    done
-
-    # Recarregar configurações do systemd
-    log "INFO" "🔄 Recarregando configurações do systemd..."
-    systemctl daemon-reload
-
-    log "SUCESSO" "✨ Configurações do sistema atualizadas com sucesso!"
-}
-
-# Função para identificar e montar HDs
-identificar_e_montar_hds() {
-    log "INFO" "🔍 Iniciando identificação e montagem de HDs..."
-
-    # Verificar se o script está sendo executado com privilégios de root
-    if [[ $EUID -ne 0 ]]; then
-        log "ERRO" "❌ Esta função requer privilégios de root"
-        return 1
-    fi
-
-    # Criar diretório base para montagem
-    local base_montagem="/home/jonasrafael/discos"
-    mkdir -p "$base_montagem"
-
-    # Usar lsblk para identificar dispositivos de bloco
-    local dispositivos=()
-    while read -r dispositivo; do
-        if [[ -n "$dispositivo" && "$dispositivo" =~ ^/dev/(sd[a-z]|nvme[0-9]n[0-9]) ]]; then
-            dispositivos+=("$dispositivo")
-        fi
-    done < <(lsblk -ndo PATH)
-
-    # Verificar e montar cada dispositivo
-    local total_dispositivos=${#dispositivos[@]}
-    local dispositivos_montados=0
-
-    log "INFO" "🖥️ Total de dispositivos encontrados: $total_dispositivos"
-
-    for dispositivo in "${dispositivos[@]}"; do
-        # Ignorar dispositivos do sistema
-        if [[ "$dispositivo" == "/dev/sda"* ]]; then
-            log "AVISO" "⏩ Pulando dispositivo de sistema: $dispositivo"
-            continue
-        fi
-
-        # Verificar se o dispositivo já está montado
-        if mount | grep -q "$dispositivo"; then
-            log "AVISO" "⚠️ Dispositivo $dispositivo já está montado"
-            continue
-        fi
-
-        # Identificar tipo de sistema de arquivos
-        local tipo_fs=""
-        tipo_fs=$(blkid -o value -s TYPE "$dispositivo")
-
-        # Verificar se o dispositivo tem partições
-        local particoes=()
-        while read -r particao_linha; do
-            local particao=$(echo "$particao_linha" | awk '{print $1}')
-            local tipo=$(echo "$particao_linha" | awk '{print $2}')
-            
-            # Log de diagnóstico adicional
-            log "DEBUG" "🔍 Linha de partição: $particao_linha"
-            log "DEBUG" "   Dispositivo: $particao"
-            log "DEBUG" "   Tipo: $tipo"
-
-            if [[ -n "$particao" && "$tipo" == "part" ]]; then
-                particoes+=("$particao")
-            fi
-        done < <(lsblk -npdo PATH,TYPE "$dispositivo")
-
-        log "INFO" "🔍 Encontradas ${#particoes[@]} partições em $dispositivo"
-
-        # Processar cada partição
-        for particao in "${particoes[@]}"; do
-            # Identificar tipo de sistema de arquivos da partição
-            local particao_fs=""
-            particao_fs=$(blkid -o value -s TYPE "$particao")
-
-            # Pular se não tiver sistema de arquivos
-            if [[ -z "$particao_fs" ]]; then
-                log "AVISO" "⚠️ Nenhum sistema de arquivos encontrado em $particao"
-                continue
-            fi
-
-            # Criar ponto de montagem
-            local nome_dispositivo
-            nome_dispositivo=$(basename "$particao")
-            local ponto_montagem="$base_montagem/$nome_dispositivo"
-            mkdir -p "$ponto_montagem"
-
-            # Tentar montar a partição
-            log "INFO" "🔌 Processando partição $particao (Tipo: $particao_fs)"
-            
-            if montar_particao "$particao" "$particao_fs"; then
-                ((dispositivos_montados++))
-                log "SUCESSO" "✅ Partição $particao montada em $ponto_montagem"
-            else
-                log "ERRO" "❌ Falha ao montar $particao"
-            fi
-        done
-    done
-
-    # Resumo final
-    log "INFO" "📊 Resumo de montagem de HDs:"
-    log "INFO" "🖥️ Total de dispositivos: $total_dispositivos"
-    log "INFO" "✅ Dispositivos montados: $dispositivos_montados"
-
-    return 0
-}
-
-# Função para identificar e montar partições com suporte expandido
-identificar_e_montar_particoes() {
-    log "INFO" "🔍 Iniciando identificação e montagem de partições..."
-
-    # Verificar se o script está sendo executado com privilégios de root
-    if [[ $EUID -ne 0 ]]; then
-        log "ERRO" "❌ Esta função requer privilégios de root"
-        return 1
-    fi
-
-    # Criar diretório base para montagem
-    local base_montagem="/home/jonasrafael/discos"
-    mkdir -p "$base_montagem"
-
-    # Usar lsblk para identificar dispositivos de bloco
-    local dispositivos=()
-    while read -r dispositivo; do
-        if [[ -n "$dispositivo" && "$dispositivo" =~ ^/dev/(sd[a-z]|nvme[0-9]n[0-9]) ]]; then
-            dispositivos+=("$dispositivo")
-        fi
-    done < <(lsblk -ndo PATH)
-
-    # Verificar e montar cada dispositivo
-    local total_dispositivos=${#dispositivos[@]}
-    local dispositivos_montados=0
-    local dispositivos_ignorados=0
-
-    log "INFO" "🖥️ Total de dispositivos encontrados: $total_dispositivos"
-
-    for dispositivo in "${dispositivos[@]}"; do
-        # Verificar se o dispositivo tem partições
-        local particoes=()
-        while read -r particao_linha; do
-            local particao=$(echo "$particao_linha" | awk '{print $1}')
-            local tipo=$(echo "$particao_linha" | awk '{print $2}')
-            
-            # Log de diagnóstico adicional
-            log "DEBUG" "🔍 Linha de partição: $particao_linha"
-            log "DEBUG" "   Dispositivo: $particao"
-            log "DEBUG" "   Tipo: $tipo"
-
-            if [[ -n "$particao" && "$tipo" == "part" ]]; then
-                particoes+=("$particao")
-            fi
-        done < <(lsblk -npdo PATH,TYPE "$dispositivo")
-
-        log "INFO" "🔍 Encontradas ${#particoes[@]} partições em $dispositivo"
-
-        # Processar cada partição
-        for particao in "${particoes[@]}"; do
-            # Identificar tipo de sistema de arquivos da partição
-            local particao_fs=""
-            particao_fs=$(blkid -o value -s TYPE "$particao")
-
-            # Pular se não tiver sistema de arquivos
-            if [[ -z "$particao_fs" ]]; then
-                log "AVISO" "⚠️ Nenhum sistema de arquivos encontrado em $particao"
-                ((dispositivos_ignorados++))
-                continue
-            fi
-
-            # Criar ponto de montagem
-            local nome_dispositivo
-            nome_dispositivo=$(basename "$particao")
-            local ponto_montagem="$base_montagem/$nome_dispositivo"
-            mkdir -p "$ponto_montagem"
-
-            # Tentar montar a partição
-            log "INFO" "🔌 Processando partição $particao (Tipo: $particao_fs)"
-            
-            if montar_particao "$particao" "$particao_fs"; then
-                ((dispositivos_montados++))
-                log "SUCESSO" "✅ Partição $particao montada em $ponto_montagem"
-            else
-                log "ERRO" "❌ Falha ao montar $particao"
-            fi
-        done
-    done
-
-    # Resumo final
-    log "INFO" "📊 Resumo de montagem de partições:"
-    log "INFO" "🖥️ Total de dispositivos: $total_dispositivos"
-    log "INFO" "✅ Dispositivos montados: $dispositivos_montados"
-    log "INFO" "⚠️ Dispositivos ignorados: $dispositivos_ignorados"
-
-    return 0
-}
-
-# Função para montar discos com nomenclatura personalizada
-montar_discos_compartilhados() {
-    log "INFO" "🔍 Iniciando montagem de discos compartilhados..."
-
-    # Verificar privilégios de root
-    if [[ $EUID -ne 0 ]]; then
-        log "ERRO" "❌ Esta função requer privilégios de root"
-        return 1
-    fi
-
-    # Diretório base para os pontos de montagem
-    local mount_base="/mnt/compartilhados"
-    mkdir -p "$mount_base"
-
-    # Array com os nomes dos discos
-    local disk_names=("sistema" "disco1" "disco2" "disco3")
-
-    # Variáveis para rastreamento
-    local total_discos=0
-    local discos_montados=0
-    local particoes_montadas=0
-    local particoes_ignoradas=0
-
-    # Depurar dispositivos de bloco
-    depurar_dispositivos_bloco
-
-    # Encontrar dispositivos de bloco com partições
-    local dispositivos=()
-    local particoes=()
-
-    # Primeiro, encontrar todos os dispositivos de bloco
-    while read -r dispositivo; do
-        if [[ -n "$dispositivo" && "$dispositivo" =~ ^/dev/(sd[a-z]|nvme[0-9]n[0-9]) ]]; then
-            dispositivos+=("$dispositivo")
-        fi
-    done < <(lsblk -npdo PATH)
-
-    # Depuração de dispositivos encontrados
-    log "DEBUG" "🔍 Dispositivos encontrados: ${dispositivos[*]}"
-
-    # Índice para iterar pelos nomes dos discos
-    local disk_index=0
-
-    # Processar cada dispositivo
-    for dispositivo in "${dispositivos[@]}"; do
-        # Ignorar dispositivos do sistema (como /dev/sda)
-        if [[ "$dispositivo" == "/dev/sda"* ]]; then
-            log "AVISO" "⏩ Pulando dispositivo de sistema: $dispositivo"
-            continue
-        fi
-
-        # Obter nome do disco personalizado
-        local current_disk_name="${disk_names[$disk_index]}"
-        if [[ -z "$current_disk_name" ]]; then
-            current_disk_name="disco_extra_$((disk_index + 1))"
-        fi
-
-        # Incrementar índice do disco
-        ((disk_index++))
-        ((total_discos++))
-
-        # Encontrar partições do dispositivo usando find
-        local dispositivo_particoes=()
-        while read -r particao; do
-            if [[ -n "$particao" ]]; then
-                dispositivo_particoes+=("$particao")
-                particoes+=("$particao")
-            fi
-        done < <(find /dev -maxdepth 1 -type b -name "${dispositivo#/dev/}[0-9]*")
-
-        # Depuração de partições encontradas
-        log "DEBUG" "🔍 Partições do dispositivo $dispositivo: ${dispositivo_particoes[*]}"
-        log "INFO" "🔍 Encontradas ${#dispositivo_particoes[@]} partições em $dispositivo"
-
-        # Processar cada partição
-        for particao in "${dispositivo_particoes[@]}"; do
-            # Verificar se a partição já está montada
-            if mount | grep -q "$particao"; then
-                log "AVISO" "⚠️ Partição $particao já está montada"
-                ((particoes_ignoradas++))
-                continue
-            fi
-
-            # Obter nome da partição
-            local nome_particao
-            nome_particao=$(basename "$particao")
-
-            # Criar ponto de montagem
-            local ponto_montagem="$mount_base/$current_disk_name/$nome_particao"
-            mkdir -p "$ponto_montagem"
-
-            # Identificar tipo de sistema de arquivos
-            local tipo_fs
-            tipo_fs=$(blkid -o value -s TYPE "$particao")
-
-            # Log de diagnóstico
-            log "INFO" "🔬 Diagnóstico de $particao:"
-            log "INFO" "   Dispositivo: $particao"
-            log "INFO" "   Tipo de FS detectado: ${tipo_fs:-NÃO DETECTADO}"
-
-            # Tentar identificar o tipo de sistema de arquivos de forma alternativa
-            if [[ -z "$tipo_fs" ]]; then
-                # Tentar métodos alternativos de detecção
-                if file -s "$particao" | grep -q "filesystem"; then
-                    tipo_fs=$(file -s "$particao" | awk '{print $3}')
-                fi
-            fi
-
-            # Montar partição
-            if [[ -n "$tipo_fs" ]]; then
-                local montagem_sucesso=false
-
-                # Tentar montar com diferentes métodos
-                case "$tipo_fs" in
-                    "ntfs")
-                        if mount -t ntfs-3g -o rw,noatime,utf8 "$particao" "$ponto_montagem"; then
-                            montagem_sucesso=true
-                        fi
-                        ;;
-                    "vfat"|"msdos")
-                        if mount -t vfat -o rw,noatime,utf8 "$particao" "$ponto_montagem"; then
-                            montagem_sucesso=true
-                        fi
-                        ;;
-                    "ext4"|"ext3"|"ext2")
-                        if mount -t "$tipo_fs" -o rw,noatime "$particao" "$ponto_montagem"; then
-                            montagem_sucesso=true
-                        fi
-                        ;;
-                    "hfsplus")
-                        if mount -t hfsplus -o rw,noatime "$particao" "$ponto_montagem"; then
-                            montagem_sucesso=true
-                        fi
-                        ;;
-                    "exfat")
-                        # Tentar múltiplos métodos de montagem para exFAT
-                        if command -v mount.exfat-fuse &>/dev/null; then
-                            if mount.exfat-fuse -o rw,noatime,uid=1000,gid=1000 "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            elif mount.exfat -o rw,noatime,uid=1000,gid=1000 "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            fi
-                        elif command -v mount.exfat &>/dev/null; then
-                            if mount.exfat -o rw,noatime,uid=1000,gid=1000 "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            fi
-                        elif command -v fuse-exfat &>/dev/null; then
-                            if fuse-exfat "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            fi
-                        fi
-                        
-                        # Log detalhado em caso de falha
-                        if [[ "$montagem_sucesso" != true ]]; then
-                            log "ERRO" "❌ Falha ao montar exFAT. Verificando pacotes instalados..."
-                            log "DEBUG" "Comandos disponíveis:"
-                            log "DEBUG" "mount.exfat-fuse: $(command -v mount.exfat-fuse || echo 'Não instalado')"
-                            log "DEBUG" "mount.exfat: $(command -v mount.exfat || echo 'Não instalado')"
-                            log "DEBUG" "fuse-exfat: $(command -v fuse-exfat || echo 'Não instalado')"
-                        fi
-                        ;;
-                    "apfs")
-                        if command -v apfs-fuse &>/dev/null; then
-                            if apfs-fuse "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            fi
-                        fi
-                        ;;
-                    *)
-                        log "AVISO" "❓ Tipo de sistema de arquivos não suportado: $tipo_fs"
-                        ((particoes_ignoradas++))
-                        continue
-                        ;;
-                esac
-
-                # Verificar resultado da montagem
-                if [[ "$montagem_sucesso" == true ]]; then
-                    log "SUCESSO" "✅ Partição $particao montada em $ponto_montagem (Tipo: $tipo_fs)"
-                    ((particoes_montadas++))
-                else
-                    log "ERRO" "❌ Falha ao montar $particao (Tipo: $tipo_fs)"
-                fi
-            else
-                log "ERRO" "❌ Nenhum sistema de arquivos detectado em $particao"
-                ((particoes_ignoradas++))
-            fi
-        done
-
-        # Incrementar contagem de discos montados
-        if [[ $particoes_montadas -gt 0 ]]; then
-            ((discos_montados++))
-        fi
-    done
-
-    # Resumo final
-    log "INFO" "📊 Resumo de montagem de discos compartilhados:"
-    log "INFO" "🖥️ Total de discos encontrados: $total_discos"
-    log "INFO" "✅ Discos montados: $discos_montados"
-    log "INFO" "📁 Partições montadas: $particoes_montadas"
-    log "INFO" "⚠️ Partições ignoradas: $particoes_ignoradas"
-
-    return 0
-}
-
-# Função para depurar e listar informações detalhadas de dispositivos de bloco
-depurar_dispositivos_bloco() {
-    log "INFO" "🔍 Iniciando depuração de dispositivos de bloco..."
-
-    # Usar lsblk com opções detalhadas
-    log "INFO" "📋 Listagem detalhada de dispositivos:"
-    lsblk -o NAME,PATH,TYPE,FSTYPE,SIZE,MOUNTPOINT,LABEL
-
-    # Usar blkid para informações adicionais
-    log "INFO" "🏷️ Informações detalhadas com blkid:"
-    blkid
-
-    # Verificar partições com fdisk
-    log "INFO" "🔬 Informações de partições com fdisk:"
-    for device in /dev/sd[b-z]; do
-        if [ -b "$device" ]; then
-            echo "Dispositivo: $device"
-            fdisk -l "$device"
-        fi
-    done
-
-    return 0
-}
-
-# Função para montar discos com nomenclatura personalizada
-montar_discos_compartilhados() {
-    log "INFO" "🔍 Iniciando montagem de discos compartilhados..."
-
-    # Verificar privilégios de root
-    if [[ $EUID -ne 0 ]]; then
-        log "ERRO" "❌ Esta função requer privilégios de root"
-        return 1
-    fi
-
-    # Diretório base para os pontos de montagem
-    local mount_base="/mnt/compartilhados"
-    mkdir -p "$mount_base"
-
-    # Array com os nomes dos discos
-    local disk_names=("sistema" "disco1" "disco2" "disco3")
-
-    # Variáveis para rastreamento
-    local total_discos=0
-    local discos_montados=0
-    local particoes_montadas=0
-    local particoes_ignoradas=0
-
-    # Depurar dispositivos de bloco
-    depurar_dispositivos_bloco
-
-    # Encontrar dispositivos de bloco com partições
-    local dispositivos=()
-    local particoes=()
-
-    # Primeiro, encontrar todos os dispositivos de bloco
-    while read -r dispositivo; do
-        if [[ -n "$dispositivo" && "$dispositivo" =~ ^/dev/(sd[a-z]|nvme[0-9]n[0-9]) ]]; then
-            dispositivos+=("$dispositivo")
-        fi
-    done < <(lsblk -npdo PATH)
-
-    # Depuração de dispositivos encontrados
-    log "DEBUG" "🔍 Dispositivos encontrados: ${dispositivos[*]}"
-
-    # Índice para iterar pelos nomes dos discos
-    local disk_index=0
-
-    # Processar cada dispositivo
-    for dispositivo in "${dispositivos[@]}"; do
-        # Ignorar dispositivos do sistema (como /dev/sda)
-        if [[ "$dispositivo" == "/dev/sda"* ]]; then
-            log "AVISO" "⏩ Pulando dispositivo de sistema: $dispositivo"
-            continue
-        fi
-
-        # Obter nome do disco personalizado
-        local current_disk_name="${disk_names[$disk_index]}"
-        if [[ -z "$current_disk_name" ]]; then
-            current_disk_name="disco_extra_$((disk_index + 1))"
-        fi
-
-        # Incrementar índice do disco
-        ((disk_index++))
-        ((total_discos++))
-
-        # Encontrar partições do dispositivo usando find
-        local dispositivo_particoes=()
-        while read -r particao; do
-            if [[ -n "$particao" ]]; then
-                dispositivo_particoes+=("$particao")
-                particoes+=("$particao")
-            fi
-        done < <(find /dev -maxdepth 1 -type b -name "${dispositivo#/dev/}[0-9]*")
-
-        # Depuração de partições encontradas
-        log "DEBUG" "🔍 Partições do dispositivo $dispositivo: ${dispositivo_particoes[*]}"
-        log "INFO" "🔍 Encontradas ${#dispositivo_particoes[@]} partições em $dispositivo"
-
-        # Processar cada partição
-        for particao in "${dispositivo_particoes[@]}"; do
-            # Verificar se a partição já está montada
-            if mount | grep -q "$particao"; then
-                log "AVISO" "⚠️ Partição $particao já está montada"
-                ((particoes_ignoradas++))
-                continue
-            fi
-
-            # Obter nome da partição
-            local nome_particao
-            nome_particao=$(basename "$particao")
-
-            # Criar ponto de montagem
-            local ponto_montagem="$mount_base/$current_disk_name/$nome_particao"
-            mkdir -p "$ponto_montagem"
-
-            # Identificar tipo de sistema de arquivos
-            local tipo_fs
-            tipo_fs=$(blkid -o value -s TYPE "$particao")
-
-            # Log de diagnóstico
-            log "INFO" "🔬 Diagnóstico de $particao:"
-            log "INFO" "   Dispositivo: $particao"
-            log "INFO" "   Tipo de FS detectado: ${tipo_fs:-NÃO DETECTADO}"
-
-            # Tentar identificar o tipo de sistema de arquivos de forma alternativa
-            if [[ -z "$tipo_fs" ]]; then
-                # Tentar métodos alternativos de detecção
-                if file -s "$particao" | grep -q "filesystem"; then
-                    tipo_fs=$(file -s "$particao" | awk '{print $3}')
-                fi
-            fi
-
-            # Montar partição
-            if [[ -n "$tipo_fs" ]]; then
-                local montagem_sucesso=false
-
-                # Tentar montar com diferentes métodos
-                case "$tipo_fs" in
-                    "ntfs")
-                        if mount -t ntfs-3g -o rw,noatime,utf8 "$particao" "$ponto_montagem"; then
-                            montagem_sucesso=true
-                        fi
-                        ;;
-                    "vfat"|"msdos")
-                        if mount -t vfat -o rw,noatime,utf8 "$particao" "$ponto_montagem"; then
-                            montagem_sucesso=true
-                        fi
-                        ;;
-                    "ext4"|"ext3"|"ext2")
-                        if mount -t "$tipo_fs" -o rw,noatime "$particao" "$ponto_montagem"; then
-                            montagem_sucesso=true
-                        fi
-                        ;;
-                    "hfsplus")
-                        if mount -t hfsplus -o rw,noatime "$particao" "$ponto_montagem"; then
-                            montagem_sucesso=true
-                        fi
-                        ;;
-                    "exfat")
-                        # Tentar múltiplos métodos de montagem para exFAT
-                        if command -v mount.exfat-fuse &>/dev/null; then
-                            if mount.exfat-fuse -o rw,noatime,uid=1000,gid=1000 "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            elif mount.exfat -o rw,noatime,uid=1000,gid=1000 "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            fi
-                        elif command -v mount.exfat &>/dev/null; then
-                            if mount.exfat -o rw,noatime,uid=1000,gid=1000 "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            fi
-                        elif command -v fuse-exfat &>/dev/null; then
-                            if fuse-exfat "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            fi
-                        fi
-                        
-                        # Log detalhado em caso de falha
-                        if [[ "$montagem_sucesso" != true ]]; then
-                            log "ERRO" "❌ Falha ao montar exFAT. Verificando pacotes instalados..."
-                            log "DEBUG" "Comandos disponíveis:"
-                            log "DEBUG" "mount.exfat-fuse: $(command -v mount.exfat-fuse || echo 'Não instalado')"
-                            log "DEBUG" "mount.exfat: $(command -v mount.exfat || echo 'Não instalado')"
-                            log "DEBUG" "fuse-exfat: $(command -v fuse-exfat || echo 'Não instalado')"
-                        fi
-                        ;;
-                    "apfs")
-                        if command -v apfs-fuse &>/dev/null; then
-                            if apfs-fuse "$particao" "$ponto_montagem"; then
-                                montagem_sucesso=true
-                            fi
-                        fi
-                        ;;
-                    *)
-                        log "AVISO" "❓ Tipo de sistema de arquivos não suportado: $tipo_fs"
-                        ((particoes_ignoradas++))
-                        continue
-                        ;;
-                esac
-
-                # Verificar resultado da montagem
-                if [[ "$montagem_sucesso" == true ]]; then
-                    log "SUCESSO" "✅ Partição $particao montada em $ponto_montagem (Tipo: $tipo_fs)"
-                    ((particoes_montadas++))
-                else
-                    log "ERRO" "❌ Falha ao montar $particao (Tipo: $tipo_fs)"
-                fi
-            else
-                log "ERRO" "❌ Nenhum sistema de arquivos detectado em $particao"
-                ((particoes_ignoradas++))
-            fi
-        done
-
-        # Incrementar contagem de discos montados
-        if [[ $particoes_montadas -gt 0 ]]; then
-            ((discos_montados++))
-        fi
-    done
-
-    # Resumo final
-    log "INFO" "📊 Resumo de montagem de discos compartilhados:"
-    log "INFO" "🖥️ Total de discos encontrados: $total_discos"
-    log "INFO" "✅ Discos montados: $discos_montados"
-    log "INFO" "📁 Partições montadas: $particoes_montadas"
-    log "INFO" "⚠️ Partições ignoradas: $particoes_ignoradas"
-
-    return 0
-}
-
-instalar_pacotes_exfat() {
-    log "INFO" "📦 Verificando e instalando pacotes para suporte exFAT..."
+    # Backup do fstab original
+    cp /etc/fstab /etc/fstab.backup_adao_$(date +"%Y%m%d_%H%M%S")
     
-    # Atualizar repositórios com opções mais conservadoras
-    apt-get update -o Acquire::ForceHash=yes
-
-    # Pacotes necessários para exFAT
-    local pacotes_exfat=(
-        "fuse"
-        "exfat-fuse"
+    # Diretório base para montagem
+    local base_montagem="/home/jonasrafael/discos"
+    
+    # Dispositivos a serem montados
+    local dispositivos=(
+        "/dev/sdb1"
+        "/dev/sdc1"
     )
     
-    # Tentar instalar via apt com opções conservadoras
-    for pacote in "${pacotes_exfat[@]}"; do
-        if ! dpkg -s "$pacote" &> /dev/null; then
-            log "AVISO" "🔧 Instalando $pacote..."
-            
-            # Tentar instalar com opções de compatibilidade
-            apt-get install -y --no-install-recommends --force-yes "$pacote" || 
-            apt-get install -y -f ||
-            { 
-                log "ERRO" "❌ Falha ao instalar $pacote"
-                return 1
-            }
+    # Arquivo temporário para novas entradas
+    local temp_fstab=$(mktemp)
+    
+    # Copiar entradas originais preservando comentários e opções especiais
+    grep -E '^[^#]' /etc/fstab | grep -v "$base_montagem" > "$temp_fstab"
+    
+    # Adicionar novas entradas com opções de montagem seguras
+    for dispositivo in "${dispositivos[@]}"; do
+        # Verificar se o dispositivo existe
+        if [[ ! -b "$dispositivo" ]]; then
+            log "AVISO" "⚠️ Dispositivo $dispositivo não encontrado, pulando entrada no fstab"
+            continue
+        }
+        
+        # Obter UUID e tipo de filesystem
+        local uuid=""
+        local tipo_fs=""
+        uuid=$(blkid -o value -s UUID "$dispositivo")
+        tipo_fs=$(blkid -o value -s TYPE "$dispositivo")
+        
+        # Definir nome do ponto de montagem
+        local nome_disco=""
+        case "$dispositivo" in
+            "/dev/sdb1") nome_disco="disco1" ;;
+            "/dev/sdc1") nome_disco="disco2" ;;
+            *) nome_disco="sistema" ;;
+        esac
+        
+        local ponto_montagem="$base_montagem/$nome_disco"
+        
+        # Opções de montagem seguras e tolerantes a falhas
+        local opcoes_montagem="noauto,nofail,x-systemd.automount,x-systemd.idle-timeout=30,x-systemd.device-timeout=5s,uid=1000,gid=1000,utf8"
+        
+        # Adicionar entrada ao fstab
+        if [[ -n "$uuid" && -n "$tipo_fs" ]]; then
+            echo "UUID=$uuid $ponto_montagem $tipo_fs $opcoes_montagem 0 2" >> "$temp_fstab"
+            log "INFO" "✅ Adicionando entrada para $dispositivo em $ponto_montagem"
+        else
+            log "AVISO" "⚠️ Não foi possível gerar entrada para $dispositivo"
         fi
     done
-
-    # Verificar se os comandos de montagem estão disponíveis
-    if ! command -v mount.exfat-fuse &> /dev/null; then
-        log "AVISO" "🔧 Tentando instalar mount.exfat-fuse manualmente..."
-        
-        # Método alternativo de instalação
-        if [ -f /etc/apt/sources.list ]; then
-            # Adicionar repositório se necessário
-            grep -q "contrib" /etc/apt/sources.list || 
-            sed -i 's/main/main contrib/g' /etc/apt/sources.list
-        fi
-        
-        apt-get update
-        apt-get install -y --no-install-recommends exfat-fuse exfat-utils ||
-        apt-get install -y -f
-    fi
-
-    # Carregar módulo FUSE de forma mais robusta
-    modprobe fuse 2>/dev/null || 
-    { 
-        log "AVISO" "🔧 Tentando carregar módulo FUSE manualmente..."
-        insmod /lib/modules/$(uname -r)/kernel/fs/fuse/fuse.ko 2>/dev/null
-    }
+    
+    # Substituir fstab
+    mv "$temp_fstab" /etc/fstab
+    chmod 644 /etc/fstab
+    
+    # Recarregar configurações do systemd
+    systemctl daemon-reload
+    
+    log "SUCESSO" "✨ Configurações do fstab atualizadas com sucesso!"
 }
 
-montar_particao() {
-    local dispositivo="$1"
-    local tipo_fs="$2"
-    local ponto_montagem="$3"
+# Função para criar pontos de montagem seguros
+criar_pontos_montagem() {
+    local base_montagem="/home/jonasrafael/discos"
     
-    # Verificar se o dispositivo existe
-    if [[ ! -b "$dispositivo" ]]; then
-        log "ERRO" "❌ Dispositivo $dispositivo não encontrado"
-        return 1
-    fi
+    # Criar diretório base
+    mkdir -p "$base_montagem"
+    chmod 755 "$base_montagem"
     
-    # Criar ponto de montagem se não existir
-    mkdir -p "$ponto_montagem"
-    chmod 777 "$ponto_montagem"
+    # Nomes dos subdiretórios
+    local nomes_discos=("sistema" "disco1" "disco2" "disco3" "disco4" "disco5")
     
-    # Opções de montagem seguras e compatíveis
-    local opcoes_montagem="rw,noatime,nodev,nosuid,uid=1000,gid=1000"
+    # Criar subdiretórios
+    for nome in "${nomes_discos[@]}"; do
+        local ponto_montagem="$base_montagem/$nome"
+        mkdir -p "$ponto_montagem"
+        chmod 777 "$ponto_montagem"
+        chown 1000:1000 "$ponto_montagem"
+    done
     
-    # Verificar se o dispositivo já está montado
-    if mount | grep -q "$dispositivo"; then
-        log "AVISO" "⚠️ $dispositivo já está montado"
-        return 1
-    fi
-    
-    # Instalar pacotes específicos para o tipo de filesystem
-    case "$tipo_fs" in
-        exfat)
-            instalar_pacotes_exfat
-            
-            # Tentar montar com diferentes métodos
-            if command -v mount.exfat-fuse &> /dev/null; then
-                mount.exfat-fuse "$dispositivo" "$ponto_montagem" -o "$opcoes_montagem" 2>/dev/null && {
-                    log "SUCESSO" "✅ Montado $dispositivo em $ponto_montagem (exFAT via exfat-fuse)"
-                    return 0
-                }
-            fi
-            
-            # Método alternativo
-            mount -t exfat "$dispositivo" "$ponto_montagem" -o "$opcoes_montagem" 2>/dev/null && {
-                log "SUCESSO" "✅ Montado $dispositivo em $ponto_montagem (exFAT via mount)"
-                return 0
-            }
-            ;;
-        ntfs)
-            # Garantir instalação do ntfs-3g
-            apt-get install -y --no-install-recommends ntfs-3g
-            
-            # Desmontar primeiro se estiver montado
-            umount "$dispositivo" 2>/dev/null
-            
-            # Tentar montar NTFS
-            mount -t ntfs-3g "$dispositivo" "$ponto_montagem" -o "$opcoes_montagem" 2>/dev/null && {
-                log "SUCESSO" "✅ Montado $dispositivo em $ponto_montagem (NTFS)"
-                return 0
-            }
-            
-            # Método alternativo
-            ntfs-3g "$dispositivo" "$ponto_montagem" -o "$opcoes_montagem" 2>/dev/null && {
-                log "SUCESSO" "✅ Montado $dispositivo em $ponto_montagem (NTFS via ntfs-3g)"
-                return 0
-            }
-            ;;
-        # Adicionar outros tipos de filesystem conforme necessário
-        *)
-            log "ERRO" "❌ Tipo de filesystem $tipo_fs não suportado"
-            return 1
-            ;;
-    esac
-    
-    log "ERRO" "❌ Falha ao montar $dispositivo"
-    return 1
+    log "SUCESSO" "✅ Pontos de montagem criados em $base_montagem"
 }
 
+# Função para montar discos com nomenclatura personalizada
 montar_discos_compartilhados() {
     log "INFO" "🔍 Iniciando montagem de discos compartilhados..."
     
