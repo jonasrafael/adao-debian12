@@ -42,6 +42,7 @@ BUILD_DEPENDENCIES=(
     "libfuse-dev"
     "libssl-dev"
     "libz-dev"
+    "linux-headers-$(uname -r)"
 )
 
 # Pacotes base
@@ -62,6 +63,7 @@ FS_PACKAGES=(
     "ntfs-3g"
     "hfsprogs"
     "e2fsprogs"
+    "fuse"
 )
 
 # Instalar pacotes de dependência
@@ -76,7 +78,7 @@ apt install -y "${BASE_PACKAGES[@]}"
 log "INFO" "Instalando suporte a sistemas de arquivos..."
 apt install -y "${FS_PACKAGES[@]}"
 
-# Criar diretório de trabalho
+# Criar diretório de trabalho para APFS-FUSE
 WORK_DIR="/opt/apfs-fuse"
 mkdir -p "$WORK_DIR"
 cd "$WORK_DIR"
@@ -103,20 +105,49 @@ mkdir -p /home/jonasrafael/discos
 chown jonasrafael:jonasrafael /home/jonasrafael/discos
 chmod 755 /home/jonasrafael/discos
 
-# Verificar módulos do kernel
-log "INFO" "Verificando módulos do kernel..."
+# Função para instalar e carregar módulo do kernel
+instalar_modulo_kernel() {
+    local modulo="$1"
+    
+    # Tentar carregar o módulo
+    modprobe "$modulo" 2>/dev/null
+    
+    # Se falhar, tentar recompilar
+    if [ $? -ne 0 ]; then
+        log "AVISO" "Módulo $modulo não encontrado. Tentando recompilar..."
+        
+        # Instalar pacotes de desenvolvimento do kernel
+        apt install -y "linux-headers-$(uname -r)"
+        
+        # Tentar compilar módulo DKMS se disponível
+        if command -v dkms &>/dev/null; then
+            log "INFO" "Usando DKMS para instalar módulo $modulo"
+            dkms autoinstall
+        fi
+        
+        # Tentar carregar novamente
+        modprobe "$modulo"
+        
+        if [ $? -eq 0 ]; then
+            log "SUCESSO" "Módulo $modulo carregado com sucesso"
+        else
+            log "ERRO" "Falha ao carregar módulo $modulo"
+        fi
+    else
+        log "SUCESSO" "Módulo $modulo já carregado"
+    fi
+}
+
+# Módulos a serem verificados e carregados
 KERNEL_MODULES=(
     "hfsplus"
     "ntfs"
     "ext4"
 )
 
+# Verificar e carregar módulos
 for modulo in "${KERNEL_MODULES[@]}"; do
-    if modinfo "$modulo" &>/dev/null; then
-        log "INFO" "Módulo $modulo encontrado"
-    else
-        log "AVISO" "Módulo $modulo não encontrado"
-    fi
+    instalar_modulo_kernel "$modulo"
 done
 
 # Verificar instalação do APFS-FUSE
