@@ -2,7 +2,7 @@
 
 ## 📝 Descrição
 
-Adão, comeu a maçã e legalizou para você um script avançado de montagem de partições para Debian 12, projetado para quem quer montar aquele servidor de backup com vários hds velhos para gerenciar múltiplos sistemas de arquivos com robustez, segurança e facilidade de uso. Por ssh você tem acesso a arquivos de qualquer lugar do mundo e pelo samba acesso local para jogar seus jogos preferidos.
+Adão, comeu a maçã e legalizou para você um script avançado de montagem de partições para Debian 12, projetado para quem quer montar aquele servidor de backup com vários hds velhos de diferentes sistemas de arquivos para gerenciar (ler e escrever) com segurança e facilidade de uso. Por ssh você tem acesso a arquivos de qualquer lugar do mundo e pelo samba acesso local para jogar seus jogos preferidos.
 
 ## ✨ Recursos Principais
 
