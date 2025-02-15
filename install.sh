@@ -1,5 +1,3 @@
-#Por sua conta em risco, your own risk, por tu cuenta boludo!
-
 #!/bin/bash
 
 # Script de Instalação de Requisitos para Montagem de Partições
@@ -36,6 +34,16 @@ fi
 log "INFO" "Atualizando lista de pacotes..."
 apt update
 
+# Pacotes de dependência para compilação
+BUILD_DEPENDENCIES=(
+    "git"
+    "cmake"
+    "build-essential"
+    "libfuse-dev"
+    "libssl-dev"
+    "libz-dev"
+)
+
 # Pacotes base
 BASE_PACKAGES=(
     "bash"
@@ -53,9 +61,12 @@ BASE_PACKAGES=(
 FS_PACKAGES=(
     "ntfs-3g"
     "hfsprogs"
-    "apfs-fuse"
     "e2fsprogs"
 )
+
+# Instalar pacotes de dependência
+log "INFO" "Instalando pacotes de dependência..."
+apt install -y "${BUILD_DEPENDENCIES[@]}"
 
 # Instalar pacotes base
 log "INFO" "Instalando pacotes base..."
@@ -65,6 +76,27 @@ apt install -y "${BASE_PACKAGES[@]}"
 log "INFO" "Instalando suporte a sistemas de arquivos..."
 apt install -y "${FS_PACKAGES[@]}"
 
+# Criar diretório de trabalho
+WORK_DIR="/opt/apfs-fuse"
+mkdir -p "$WORK_DIR"
+cd "$WORK_DIR"
+
+# Clonar repositório APFS-FUSE
+log "INFO" "Clonando repositório APFS-FUSE..."
+git clone https://github.com/sgan81/apfs-fuse.git .
+git submodule update --init --recursive
+
+# Compilar APFS-FUSE
+log "INFO" "Compilando APFS-FUSE..."
+mkdir build
+cd build
+cmake ..
+make
+make install
+
+# Criar link simbólico para facilitar uso
+ln -s "$WORK_DIR/build/apfs-fuse" /usr/local/bin/apfs-fuse
+
 # Criar diretório de montagem
 log "INFO" "Criando diretório de montagem..."
 mkdir -p /home/jonasrafael/discos
@@ -73,7 +105,12 @@ chmod 755 /home/jonasrafael/discos
 
 # Verificar módulos do kernel
 log "INFO" "Verificando módulos do kernel..."
-KERNEL_MODULES=("hfsplus" "ntfs" "apfs" "ext4")
+KERNEL_MODULES=(
+    "hfsplus"
+    "ntfs"
+    "ext4"
+)
+
 for modulo in "${KERNEL_MODULES[@]}"; do
     if modinfo "$modulo" &>/dev/null; then
         log "INFO" "Módulo $modulo encontrado"
@@ -81,6 +118,15 @@ for modulo in "${KERNEL_MODULES[@]}"; do
         log "AVISO" "Módulo $modulo não encontrado"
     fi
 done
+
+# Verificar instalação do APFS-FUSE
+if command -v apfs-fuse &>/dev/null; then
+    log "SUCESSO" "APFS-FUSE instalado com sucesso!"
+    apfs-fuse --version
+else
+    log "ERRO" "Falha na instalação do APFS-FUSE"
+    exit 1
+fi
 
 # Atualizar initramfs
 log "INFO" "Atualizando initramfs..."
