@@ -63,11 +63,65 @@ Edite o script para modificar:
 
 ## 📋 Registro de Mudanças
 
-### Versão 1.0
-- Suporte inicial a HFS+, NTFS, APFS
-- Descoberta dinâmica de módulos
-- Logs detalhados
-- Prevenção de montagens duplicadas
+# Histórico de Versões do Script Adão
+
+## [1.4.0] - 2025-02-16
+### Experimental
+- Função `integrar_systemd_devices()` para gerenciamento de dispositivos
+- Função `detectar_filesystem_avancado()` com detalhamento de dispositivos
+
+### Adicionado
+- Suporte a opções de linha de comando para funções experimentais
+- Integração opcional com systemd
+- Detecção avançada de filesystem
+
+### Modificações
+- Mantido comportamento padrão do script
+- Funções experimentais não afetam execução principal
+
+## [1.3.0] - 2025-02-16
+### Adicionado
+- Função `verificar_dependencias()` para checagem e instalação automática de pacotes
+- Suporte aprimorado para Debian 12 e Crunchbang++
+- Verificação de módulos de filesystem durante inicialização
+- Tratamento de pacotes opcionais e necessários
+
+### Segurança
+- Função `proteger_sistema_raiz()` para identificação segura do dispositivo raiz
+- Função `validar_dispositivo_externo()` com múltiplas camadas de verificação
+- Proteção contra modificações acidentais no sistema de arquivos raiz
+
+### Modificações
+- Atualizado cabeçalho com informações de versão
+- Adicionado log de mudanças no script principal
+- Melhorada a robustez da função de recuperação de boot
+
+## [1.2.0] - 2025-02-16
+### Adicionado
+- Método de proteção do sistema de arquivos raiz
+- Verificações de segurança para dispositivos externos
+- Função de recuperação de boot com proteções adicionais
+- Verificação e instalação automática de dependências
+
+## [1.0.0] - 2025-02-15
+### Inicial
+- Suporte básico para montagem de dispositivos
+- Logging detalhado
+- Suporte a múltiplos sistemas de arquivos
+- Montagem dinâmica de partições
+
+## Próximas Versões Planejadas
+- [ ] Suporte a criptografia de dispositivos
+- [ ] Interface de configuração interativa
+- [ ] Integração com gerenciamento de dispositivos do systemd
+- [ ] Melhorias na detecção de filesystem
+
+## Convenções de Versionamento
+- MAJOR.MINOR.PATCH
+- MAJOR: Mudanças incompatíveis na API
+- MINOR: Novas funcionalidades compatíveis
+- PATCH: Correções de bugs e melhorias menores
+
 
 ## 🤝 Contribuições
 
