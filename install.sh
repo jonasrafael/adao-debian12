@@ -38,20 +38,6 @@ verificar_requisitos() {
         fi
     done
 
-    # Verificar módulos do kernel
-    local MODULOS_NECESSARIOS=(
-        "hfsplus"
-        "ntfs"
-        "apfs"
-        "ext4"
-    )
-
-    for modulo in "${MODULOS_NECESSARIOS[@]}"; do
-        if ! modinfo "$modulo" &> /dev/null; then
-            echo "⚠️ Módulo de kernel não encontrado: $modulo"
-        fi
-    done
-
     # Verificar privilégios de root
     if [[ $EUID -ne 0 ]]; then
         echo "❌ Este script requer privilégios de root/sudo"
@@ -66,19 +52,6 @@ verificar_requisitos() {
         echo "❌ Sistema operacional não suportado: $SISTEMA $VERSAO"
         FALHA=1
     fi
-
-    # Verificar dependências específicas
-    local DEPENDENCIAS_ESPECIFICAS=(
-        "ntfs-3g"
-        "hfsprogs"
-        "apfs-fuse"
-    )
-
-    for dep in "${DEPENDENCIAS_ESPECIFICAS[@]}"; do
-        if ! dpkg -s "$dep" &> /dev/null; then
-            echo "⚠️ Dependência específica não instalada: $dep"
-        fi
-    done
 
     # Verificar espaço em disco
     local espaco_minimo=1024  # 1 GB
@@ -97,6 +70,222 @@ verificar_requisitos() {
         echo "✅ Todos os requisitos de sistema verificados com sucesso!"
         return 0
     fi
+}
+
+# Função para carregar módulos do kernel
+carregar_modulos_kernel() {
+    local MODULOS=(
+        "ntfs"
+        "apfs"
+        "hfsplus"
+        "ext4"
+    )
+
+    echo "🔌 Carregando módulos do kernel..."
+
+    for modulo in "${MODULOS[@]}"; do
+        # Tentar carregar módulo
+        if ! modprobe "$modulo" 2>/dev/null; then
+            echo "⚠️ Não foi possível carregar módulo: $modulo"
+            
+            # Tentar instalar pacotes de suporte
+            case "$modulo" in
+                "ntfs")
+                    apt-get install -y ntfs-3g
+                    modprobe ntfs-3g
+                    ;;
+                "apfs")
+                    # Já estamos instalando apfs-fuse, então apenas informamos
+                    echo "ℹ️ Suporte a APFS será instalado via apfs-fuse"
+                    ;;
+                "hfsplus")
+                    apt-get install -y hfsprogs
+                    modprobe hfsplus
+                    ;;
+            esac
+        else
+            echo "✅ Módulo carregado: $modulo"
+        fi
+    done
+}
+
+# Função para instalar dependências específicas
+instalar_dependencias_especificas() {
+    echo "🛠️ Instalando dependências específicas..."
+
+    # Atualizar lista de pacotes
+    apt-get update
+
+    # Pacotes a serem instalados
+    local PACOTES=(
+        "ntfs-3g"
+        "hfsprogs"
+        "fuse"
+        "exfat-fuse"
+    )
+
+    # Substituir pacotes obsoletos
+    if ! apt-get install -y "${PACOTES[@]}"; then
+        echo "⚠️ Alguns pacotes podem não estar disponíveis. Tentando instalação individual..."
+        
+        for pacote in "${PACOTES[@]}"; do
+            apt-get install -y "$pacote" || {
+                echo "❌ Falha ao instalar $pacote"
+                
+                # Tratamentos específicos
+                case "$pacote" in
+                    "exfat-utils")
+                        echo "🔍 Usando exfat-fuse como alternativa"
+                        apt-get install -y exfat-fuse
+                        ;;
+                esac
+            }
+        done
+    fi
+
+    # Instalar dependências FUSE
+    if ! instalar_dependencias_fuse; then
+        echo "❌ Falha na instalação das dependências FUSE"
+        return 1
+    fi
+
+    # Instalar apfs-fuse se não estiver presente
+    if ! command -v apfs-fuse &> /dev/null; then
+        echo "🍎 Instalando apfs-fuse..."
+        compilar_apfs_fuse || {
+            echo "❌ Falha na instalação do APFS-FUSE"
+            return 1
+        }
+    fi
+
+    return 0
+}
+
+# Função para instalar dependências de compilação FUSE
+instalar_dependencias_fuse() {
+    echo "🔧 Instalando dependências FUSE..."
+    
+    # Atualizar lista de pacotes
+    apt-get update
+    
+    # Instalar pacotes FUSE
+    apt-get install -y \
+        fuse \
+        libfuse-dev \
+        libfuse3-3 \
+        libfuse3-dev \
+        fuse3
+
+    # Verificar versões e links simbólicos
+    local fuse_version=$(pkg-config --modversion fuse3 2>/dev/null)
+    if [ -n "$fuse_version" ]; then
+        echo "✅ FUSE3 instalado: versão $fuse_version"
+    else
+        echo "❌ Falha na instalação do FUSE3"
+        return 1
+    fi
+
+    # Criar links simbólicos para cabeçalhos
+    local fuse_include_dirs=(
+        "/usr/include/fuse3"
+        "/usr/local/include/fuse3"
+        "/usr/include"
+        "/usr/local/include"
+    )
+
+    local fuse_header_paths=()
+    for dir in "${fuse_include_dirs[@]}"; do
+        if [ -f "$dir/fuse.h" ]; then
+            fuse_header_paths+=("$dir")
+        fi
+    done
+
+    # Configurar links simbólicos
+    if [ ${#fuse_header_paths[@]} -eq 0 ]; then
+        echo "❌ Cabeçalhos FUSE não encontrados"
+        return 1
+    fi
+
+    # Criar links simbólicos
+    for path in "${fuse_header_paths[@]}"; do
+        if [ ! -f "/usr/include/fuse.h" ]; then
+            ln -s "$path/fuse.h" "/usr/include/fuse.h" 2>/dev/null
+        fi
+        if [ ! -f "/usr/include/fuse3/fuse.h" ]; then
+            mkdir -p /usr/include/fuse3
+            ln -s "$path/fuse.h" "/usr/include/fuse3/fuse.h" 2>/dev/null
+        fi
+    done
+
+    return 0
+}
+
+# Função para compilar e instalar APFS-FUSE
+compilar_apfs_fuse() {
+    echo "🍎 Compilando APFS-FUSE a partir do código-fonte..."
+    
+    # Criar diretório temporário
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+    
+    # Clonar repositório
+    if ! git clone --recursive https://github.com/sgan81/apfs-fuse.git; then
+        echo "❌ Falha ao clonar repositório do APFS-FUSE"
+        return 1
+    fi
+    
+    cd apfs-fuse
+    
+    # Preparar compilação
+    mkdir -p build
+    cd build
+    
+    # Configurar CMake com flags adicionais
+    local FUSE_INCLUDE_DIRS=$(pkg-config --cflags fuse3)
+    
+    if ! cmake -DCMAKE_BUILD_TYPE=Release \
+               -DCMAKE_INSTALL_PREFIX=/usr/local \
+               -DBUILD_SHARED_LIBS=ON \
+               -DCMAKE_C_FLAGS="-Wno-sign-compare" \
+               -DCMAKE_CXX_FLAGS="-Wno-sign-compare" \
+               -DFUSE_INCLUDE_DIRS=/usr/include/fuse3 \
+               ..; then
+        echo "❌ Falha na configuração do CMake para APFS-FUSE"
+        return 1
+    fi
+    
+    # Modificar código-fonte para corrigir warnings
+    sed -i 's/for (int i = 0; i < table_size; i++)/for (size_t i = 0; i < table_size; i++)/g' \
+        ../3rdparty/lzfse/src/lzfse_fse.h
+    
+    # Compilar
+    if ! make -j$(nproc); then
+        echo "❌ Falha na compilação do APFS-FUSE"
+        
+        # Identificar dependências faltantes
+        local missing_headers=$(find . -type f -name "*.cpp" -exec grep -l "#include" {} \; | xargs grep -l "No such file or directory")
+        echo "🔍 Cabeçalhos ausentes: $missing_headers"
+        
+        return 1
+    fi
+    
+    # Instalar
+    if ! make install; then
+        echo "❌ Falha na instalação do APFS-FUSE"
+        return 1
+    fi
+    
+    # Adicionar biblioteca ao sistema
+    ldconfig
+    
+    # Verificar instalação
+    if ! command -v apfs-fuse &> /dev/null; then
+        echo "❌ Comando apfs-fuse não encontrado após instalação"
+        return 1
+    fi
+    
+    echo "✅ APFS-FUSE instalado com sucesso!"
+    return 0
 }
 
 # Verificar root
@@ -336,6 +525,15 @@ main() {
     # Verificar requisitos antes de iniciar
     if ! verificar_requisitos; then
         echo "❌ Falha na verificação de requisitos. Não é possível continuar."
+        exit 1
+    fi
+
+    # Carregar módulos do kernel
+    carregar_modulos_kernel
+
+    # Instalar dependências específicas
+    if ! instalar_dependencias_especificas; then
+        echo "❌ Falha na instalação de dependências específicas"
         exit 1
     fi
 
