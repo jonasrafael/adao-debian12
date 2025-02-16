@@ -5,21 +5,33 @@
 # ║ "Porque ele comeu a maçã e pulou a janela" - Montagem Inteligente de     ║
 # ║                        Dispositivos de Armazenamento                     ║
 # ╠═══════════════════════════════════════════════════════════════════════════╣
-# ║ Versão:           1.2.0                                                  ║
+# ║ Versão:           1.3.0                                                  ║
 # ║ Autor:           Jonas Rafael                                            ║
 # ║ Última Atualização: 16 de Fevereiro de 2025                              ║
 # ║ Licença:         MIT                                                     ║
 # ╠═══════════════════════════════════════════════════════════════════════════╣
-# ║ Changelog v1.2.0:                                                        ║
-# ║ - Adicionado método de proteção do sistema de arquivos raiz              ║
-# ║ - Implementadas verificações de segurança para dispositivos externos     ║
-# ║ - Melhorada a recuperação de boot com proteções adicionais               ║
-# ║ - Suporte aprimorado para diferentes tipos de filesystem                 ║
+# ║ Changelog v1.3.0:                                                        ║
+# ║ Adicionado:                                                              ║
+# ║ - Função verificar_dependencias() para checagem e instalação de pacotes   ║
+# ║ - Suporte aprimorado para Debian 12 e Crunchbang++                       ║
+# ║ - Verificação de módulos de filesystem durante inicialização             ║
+# ║ - Tratamento de pacotes opcionais e necessários                          ║
+# ║                                                                          ║
+# ║ Segurança:                                                               ║
+# ║ - Função proteger_sistema_raiz() para identificação segura do dispositivo ║
+# ║ - Função validar_dispositivo_externo() com múltiplas camadas de          ║
+# ║   verificação                                                            ║
+# ║ - Proteção contra modificações acidentais no sistema de arquivos raiz    ║
+# ║                                                                          ║
+# ║ Modificações:                                                            ║
+# ║ - Atualizado cabeçalho com informações de versão                         ║
+# ║ - Adicionado log de mudanças no script principal                         ║
+# ║ - Melhorada a robustez da função de recuperação de boot                  ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
 # Variáveis globais de configuração e versão
 SCRIPT_NOME="Adao"
-SCRIPT_VERSAO="1.2.0"
+SCRIPT_VERSAO="1.3.0"
 SCRIPT_DATA_ATUALIZACAO="2025-02-16"
 
 # Verificações de segurança e configurações iniciais
@@ -1077,6 +1089,66 @@ validar_dispositivo_externo() {
     return 0
 }
 
+# Função para verificar e instalar dependências
+verificar_dependencias() {
+    log "🔍 Verificando dependências do sistema..."
+
+    # Pacotes necessários
+    local pacotes_necessarios=(
+        "util-linux"     # Para lsblk, findmnt
+        "mount"          # Utilitários de montagem
+        "blkid"          # Identificação de dispositivos
+        "ntfs-3g"        # Suporte NTFS
+        "exfat-fuse"     # Suporte exFAT
+        "fuse"           # Sistema de arquivos em espaço de usuário
+        "e2fsprogs"      # Utilitários para ext2/3/4
+        "dosfstools"     # Suporte FAT
+        "hfsprogs"       # Suporte HFS+
+    )
+
+    # Pacotes opcionais com suporte adicional
+    local pacotes_opcionais=(
+        "apfs-fuse"      # Suporte APFS
+        "exfat-utils"    # Utilitários extras exFAT
+    )
+
+    # Verificar e instalar pacotes necessários
+    local pacotes_faltando=()
+    for pacote in "${pacotes_necessarios[@]}"; do
+        if ! dpkg -s "$pacote" &>/dev/null; then
+            pacotes_faltando+=("$pacote")
+        fi
+    done
+
+    # Instalar pacotes faltando
+    if [[ ${#pacotes_faltando[@]} -gt 0 ]]; then
+        log "🛠️ Instalando pacotes necessários..."
+        apt-get update
+        apt-get install -y "${pacotes_faltando[@]}" || {
+            log "ERRO" "❌ Falha ao instalar pacotes necessários"
+            return 1
+        }
+    fi
+
+    # Tentar instalar pacotes opcionais sem interromper
+    for pacote in "${pacotes_opcionais[@]}"; do
+        if ! dpkg -s "$pacote" &>/dev/null; then
+            log "📦 Tentando instalar pacote opcional: $pacote"
+            apt-get install -y "$pacote" || 
+                log "AVISO" "⚠️ Não foi possível instalar $pacote"
+        fi
+    done
+
+    # Carregar módulos necessários
+    log "🔌 Carregando módulos de filesystem..."
+    modprobe fuse || log "AVISO" "⚠️ Não foi possível carregar módulo FUSE"
+    modprobe ntfs || log "AVISO" "⚠️ Não foi possível carregar módulo NTFS"
+    modprobe hfsplus || log "AVISO" "⚠️ Não foi possível carregar módulo HFS+"
+
+    log "✅ Verificação de dependências concluída"
+    return 0
+}
+
 # Adicionar opção de recuperação de boot na linha de comando
 if [[ "${1:-}" == "recuperar_boot" ]]; then
     recuperar_boot
@@ -1092,6 +1164,12 @@ main() {
         log "ERRO" "❌ Este script deve ser executado com sudo ou como root"
         exit 1
     fi
+
+    # Verificar dependências antes de continuar
+    verificar_dependencias || {
+        log "ERRO" "❌ Dependências não satisfeitas. Não é possível continuar."
+        exit 1
+    }
 
     # Desmontar pontos de montagem existentes antes de começar
     desmontar_pontos_montagem_existentes
