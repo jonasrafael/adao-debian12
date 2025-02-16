@@ -83,98 +83,71 @@ carregar_modulos_kernel() {
 
     echo "🔌 Carregando módulos do kernel..."
 
+    # Verificar versão do kernel
+    local KERNEL_VERSION=$(uname -r)
+    local KERNEL_MODULES_DIR="/lib/modules/${KERNEL_VERSION}"
+
+    # Criar diretório de módulos se não existir
+    mkdir -p "$KERNEL_MODULES_DIR/kernel/fs"
+
     for modulo in "${MODULOS[@]}"; do
-        # Tentar carregar módulo
-        if ! modprobe "$modulo" 2>/dev/null; then
-            echo "⚠️ Não foi possível carregar módulo: $modulo"
-            
-            # Tentar instalar pacotes de suporte
-            case "$modulo" in
-                "ntfs")
+        # Tratamento específico para cada módulo
+        case "$modulo" in
+            "ntfs")
+                # Usar ntfs-3g como alternativa
+                if ! modprobe ntfs 2>/dev/null; then
+                    echo "⚠️ Módulo NTFS não encontrado. Usando ntfs-3g..."
                     apt-get install -y ntfs-3g
-                    modprobe ntfs-3g
-                    ;;
-                "apfs")
-                    # Já estamos instalando apfs-fuse, então apenas informamos
-                    echo "ℹ️ Suporte a APFS será instalado via apfs-fuse"
-                    ;;
-                "hfsplus")
+                    # Criar link simbólico para módulo
+                    ln -s /usr/bin/ntfs-3g "$KERNEL_MODULES_DIR/kernel/fs/ntfs.ko" 2>/dev/null
+                fi
+                ;;
+            
+            "apfs")
+                # Usar apfs-fuse como alternativa
+                echo "ℹ️ Suporte a APFS será instalado via apfs-fuse"
+                ;;
+            
+            "hfsplus")
+                if ! modprobe hfsplus 2>/dev/null; then
+                    echo "⚠️ Módulo HFS+ não encontrado. Instalando hfsprogs..."
                     apt-get install -y hfsprogs
-                    modprobe hfsplus
-                    ;;
-            esac
-        else
-            echo "✅ Módulo carregado: $modulo"
-        fi
+                fi
+                ;;
+            
+            "ext4")
+                # Módulo ext4 geralmente já está no kernel
+                modprobe ext4 || true
+                ;;
+        esac
     done
-}
 
-# Função para instalar dependências específicas
-instalar_dependencias_especificas() {
-    echo "🛠️ Instalando dependências específicas..."
-
-    # Atualizar lista de pacotes
-    apt-get update
-
-    # Pacotes a serem instalados
-    local PACOTES=(
-        "ntfs-3g"
-        "hfsprogs"
-        "fuse"
-        "exfat-fuse"
-    )
-
-    # Substituir pacotes obsoletos
-    if ! apt-get install -y "${PACOTES[@]}"; then
-        echo "⚠️ Alguns pacotes podem não estar disponíveis. Tentando instalação individual..."
-        
-        for pacote in "${PACOTES[@]}"; do
-            apt-get install -y "$pacote" || {
-                echo "❌ Falha ao instalar $pacote"
-                
-                # Tratamentos específicos
-                case "$pacote" in
-                    "exfat-utils")
-                        echo "🔍 Usando exfat-fuse como alternativa"
-                        apt-get install -y exfat-fuse
-                        ;;
-                esac
-            }
-        done
-    fi
-
-    # Instalar dependências FUSE
-    if ! instalar_dependencias_fuse; then
-        echo "❌ Falha na instalação das dependências FUSE"
-        return 1
-    fi
-
-    # Instalar apfs-fuse se não estiver presente
-    if ! command -v apfs-fuse &> /dev/null; then
-        echo "🍎 Instalando apfs-fuse..."
-        compilar_apfs_fuse || {
-            echo "❌ Falha na instalação do APFS-FUSE"
-            return 1
-        }
-    fi
-
-    return 0
+    # Atualizar mapa de módulos
+    depmod -a
 }
 
 # Função para instalar dependências de compilação FUSE
 instalar_dependencias_fuse() {
     echo "🔧 Instalando dependências FUSE..."
     
+    # Desinstalar pacotes conflitantes
+    apt-get remove -y fuse fuse3 || true
+
     # Atualizar lista de pacotes
     apt-get update
     
     # Instalar pacotes FUSE
     apt-get install -y \
-        fuse \
-        libfuse-dev \
+        libfuse2 \
         libfuse3-3 \
+        libfuse-dev \
         libfuse3-dev \
-        fuse3
+        fuse3 \
+        --no-install-recommends
+
+    # Configurar alternativas para FUSE
+    update-alternatives --install /usr/bin/fusermount fusermount /usr/bin/fusermount3 100
+    update-alternatives --set fusermount /usr/bin/fusermount3
 
     # Verificar versões e links simbólicos
     local fuse_version=$(pkg-config --modversion fuse3 2>/dev/null)
@@ -216,6 +189,53 @@ instalar_dependencias_fuse() {
             ln -s "$path/fuse.h" "/usr/include/fuse3/fuse.h" 2>/dev/null
         fi
     done
+
+    return 0
+}
+
+# Função para instalar dependências específicas
+instalar_dependencias_especificas() {
+    echo "🛠️ Instalando dependências específicas..."
+
+    # Atualizar lista de pacotes
+    apt-get update
+
+    # Pacotes a serem instalados
+    local PACOTES=(
+        "ntfs-3g"
+        "hfsprogs"
+        "exfat-fuse"
+    )
+
+    # Substituir pacotes obsoletos
+    for pacote in "${PACOTES[@]}"; do
+        apt-get install -y "$pacote" || {
+            echo "❌ Falha ao instalar $pacote"
+            
+            # Tratamentos específicos
+            case "$pacote" in
+                "exfat-utils")
+                    echo "🔍 Usando exfat-fuse como alternativa"
+                    apt-get install -y exfat-fuse
+                    ;;
+            esac
+        }
+    done
+
+    # Instalar dependências FUSE
+    if ! instalar_dependencias_fuse; then
+        echo "❌ Falha na instalação das dependências FUSE"
+        return 1
+    fi
+
+    # Instalar apfs-fuse se não estiver presente
+    if ! command -v apfs-fuse &> /dev/null; then
+        echo "🍎 Instalando apfs-fuse..."
+        compilar_apfs_fuse || {
+            echo "❌ Falha na instalação do APFS-FUSE"
+            return 1
+        }
+    fi
 
     return 0
 }
