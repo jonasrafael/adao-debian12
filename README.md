@@ -105,6 +105,49 @@ Distribuído sob a Licença MIT. Veja `LICENSE` para mais informações.
 
 ## 🌟 Apoie o Projeto
 
+## 🌍 Sustentabilidade Digital: Transformando HDs Antigos em Recursos
+
+### 🔋 Contra o Lixo Eletrônico
+
+Cada HD que você reaproveita é um passo contra o descarte prematuro de eletrônicos. O `Adão` não é apenas um script, é uma filosofia de preservação digital.
+
+#### Por que Reaproveitar?
+- 💚 Reduz resíduos eletrônicos
+- 💰 Economiza recursos de fabricação
+- 🌱 Menor impacto ambiental
+- 🖥️ Prolonga a vida útil do hardware
+- 📂 Garante integridade de dado
+
+### 🗃️ Ideias de Reaproveitamento
+
+1. **Servidor de Backup Doméstico**
+   - Centralize fotos, documentos e vídeos
+   - Acesso remoto seguro
+   - Backup automático de múltiplos dispositivos
+
+2. **Biblioteca de Mídia Pessoal**
+   - Armazene filmes, séries, músicas
+   - Compartilhe via Plex ou Samba
+   - Suporte a diferentes sistemas de arquivos
+
+3. **Nuvem Pessoal Privada**
+   - Alternativa ao Google Drive
+   - Controle total dos seus dados
+   - Criptografia opcional
+
+4. **Servidor de Jogos**
+   - Armazene bibliotecas de jogos
+   - Compartilhe entre diferentes computadores
+   - Suporte a sistemas Windows e Linux
+
+### 🛠️ Como o Adão Ajuda
+- Monta HDs de diferentes idades e sistemas
+- Verifica integridade dos dispositivos
+- Configura pontos de montagem seguros
+- Log detalhado para diagnóstico
+
+**Lembre-se**: Cada HD reaproveitado é uma vitória para o planeta! 🌎♻️
+
 Se este script foi útil para você, considere:
 - ⭐ Dar uma estrela no GitHub
 - 💖 Fazer uma doação
