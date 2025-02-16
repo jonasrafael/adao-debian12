@@ -5,33 +5,29 @@
 # ║ "Porque ele comeu a maçã e pulou a janela" - Montagem Inteligente de     ║
 # ║                        Dispositivos de Armazenamento                     ║
 # ╠═══════════════════════════════════════════════════════════════════════════╣
-# ║ Versão:           1.3.0                                                  ║
+# ║ Versão:           1.4.0                                                  ║
 # ║ Autor:           Jonas Rafael                                            ║
 # ║ Última Atualização: 16 de Fevereiro de 2025                              ║
 # ║ Licença:         MIT                                                     ║
 # ╠═══════════════════════════════════════════════════════════════════════════╣
-# ║ Changelog v1.3.0:                                                        ║
-# ║ Adicionado:                                                              ║
-# ║ - Função verificar_dependencias() para checagem e instalação de pacotes   ║
-# ║ - Suporte aprimorado para Debian 12 e Crunchbang++                       ║
-# ║ - Verificação de módulos de filesystem durante inicialização             ║
-# ║ - Tratamento de pacotes opcionais e necessários                          ║
+# ║ Changelog v1.4.0:                                                        ║
+# ║ Experimental:                                                            ║
+# ║ - Função integrar_systemd_devices() para gerenciamento de dispositivos   ║
+# ║ - Função detectar_filesystem_avancado() com detalhamento de dispositivos ║
 # ║                                                                          ║
-# ║ Segurança:                                                               ║
-# ║ - Função proteger_sistema_raiz() para identificação segura do dispositivo ║
-# ║ - Função validar_dispositivo_externo() com múltiplas camadas de          ║
-# ║   verificação                                                            ║
-# ║ - Proteção contra modificações acidentais no sistema de arquivos raiz    ║
+# ║ Adicionado:                                                              ║
+# ║ - Suporte a opções de linha de comando para funções experimentais        ║
+# ║ - Integração opcional com systemd                                        ║
+# ║ - Detecção avançada de filesystem                                        ║
 # ║                                                                          ║
 # ║ Modificações:                                                            ║
-# ║ - Atualizado cabeçalho com informações de versão                         ║
-# ║ - Adicionado log de mudanças no script principal                         ║
-# ║ - Melhorada a robustez da função de recuperação de boot                  ║
+# ║ - Mantido comportamento padrão do script                                 ║
+# ║ - Funções experimentais não afetam execução principal                    ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
 # Variáveis globais de configuração e versão
 SCRIPT_NOME="Adao"
-SCRIPT_VERSAO="1.3.0"
+SCRIPT_VERSAO="1.4.0"
 SCRIPT_DATA_ATUALIZACAO="2025-02-16"
 
 # Verificações de segurança e configurações iniciais
@@ -1187,3 +1183,102 @@ main() {
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
     main
 fi
+
+# Função experimental para integração com systemd
+integrar_systemd_devices() {
+    log "🔌 Iniciando integração com gerenciamento de dispositivos do systemd..."
+
+    # Verificar se systemctl está disponível
+    if ! command -v systemctl &>/dev/null; then
+        log "ERRO" "❌ systemctl não encontrado. Integração não é possível."
+        return 1
+    }
+
+    # Listar dispositivos gerenciados pelo systemd
+    log "📋 Dispositivos gerenciados pelo systemd:"
+    systemctl list-units 'sys-devices-block*' --no-pager
+
+    # Criar unidade de serviço personalizada para montagem
+    local servico_montagem="/etc/systemd/system/adao-mount.service"
+    
+    {
+        echo "[Unit]"
+        echo "Description=Adão Intelligent Disk Mounting Service"
+        echo "After=network.target"
+        echo "Wants=systemd-udev-settle.service"
+        
+        echo "[Service]"
+        echo "Type=oneshot"
+        echo "RemainAfterExit=yes"
+        echo "ExecStart=/bin/bash /home/jonasrafael/montar_particoes_multi.sh"
+        
+        echo "[Install]"
+        echo "WantedBy=multi-user.target"
+    } > "$servico_montagem"
+
+    # Recarregar systemd e habilitar serviço
+    systemctl daemon-reload
+    systemctl enable adao-mount.service
+
+    log "✅ Integração com systemd configurada com sucesso"
+}
+
+# Função experimental para detecção avançada de filesystem
+detectar_filesystem_avancado() {
+    log "🔍 Iniciando detecção avançada de filesystem..."
+
+    # Array para armazenar informações detalhadas
+    local dispositivos_info=()
+
+    # Usar blkid com opções detalhadas
+    while read -r linha; do
+        local dispositivo=$(echo "$linha" | cut -d: -f1)
+        local tipo=$(echo "$linha" | grep -oP 'TYPE="\K[^"]+')
+        local uuid=$(echo "$linha" | grep -oP 'UUID="\K[^"]+')
+        local label=$(echo "$linha" | grep -oP 'LABEL="\K[^"]+')
+
+        # Informações adicionais de filesystem
+        local tamanho=""
+        local usado=""
+        local disponivel=""
+
+        # Tentar obter informações de uso com df
+        if df -h "$dispositivo" &>/dev/null; then
+            tamanho=$(df -h "$dispositivo" | awk 'NR==2 {print $2}')
+            usado=$(df -h "$dispositivo" | awk 'NR==2 {print $3}')
+            disponivel=$(df -h "$dispositivo" | awk 'NR==2 {print $4}')
+        fi
+
+        # Criar entrada detalhada
+        local info_dispositivo="Dispositivo: $dispositivo"
+        info_dispositivo+="|Tipo: ${tipo:-DESCONHECIDO}"
+        info_dispositivo+="|UUID: ${uuid:-N/A}"
+        info_dispositivo+="|Label: ${label:-Sem Label}"
+        info_dispositivo+="|Tamanho: ${tamanho:-N/A}"
+        info_dispositivo+="|Usado: ${usado:-N/A}"
+        info_dispositivo+="|Disponível: ${disponivel:-N/A}"
+
+        dispositivos_info+=("$info_dispositivo")
+    done < <(blkid)
+
+    # Log de dispositivos encontrados
+    log "📊 Dispositivos detectados:"
+    for dispositivo in "${dispositivos_info[@]}"; do
+        log "🔸 $dispositivo"
+    done
+
+    # Retornar array de dispositivos
+    printf '%s\n' "${dispositivos_info[@]}"
+}
+
+# Adicionar opções de linha de comando para novas funções
+case "${1:-}" in
+    systemd_integration)
+        integrar_systemd_devices
+        exit 0
+        ;;
+    advanced_detect)
+        detectar_filesystem_avancado
+        exit 0
+        ;;
+esac
