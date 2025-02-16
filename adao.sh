@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# #╔═══════════════════════════════════════════════════════════════════════════╗
+# ╔═══════════════════════════════════════════════════════════════════════════╗
 # ║                               ADÃO SCRIPT                                ║
 # ║ "Porque ele comeu a maçã e pulou a janela" - Montagem Inteligente de     ║
 # ║                        Dispositivos de Armazenamento                     ║
@@ -29,6 +29,69 @@
 SCRIPT_NOME="Adao"
 SCRIPT_VERSAO="1.4.0"
 SCRIPT_DATA_ATUALIZACAO="2025-02-16"
+
+# Configurações de segurança e falha rápida
+set -euo pipefail
+trap 'log "ERRO" "Erro na linha $LINENO"' ERR
+
+# Verificar versão do sistema
+verificar_sistema() {
+    local SISTEMA=$(grep -oP '(?<=^ID=).*' /etc/os-release | tr -d '"')
+    local VERSAO=$(grep -oP '(?<=^VERSION_ID=).*' /etc/os-release | tr -d '"')
+
+    case "$SISTEMA" in
+        debian)
+            [[ "$VERSAO" == "12" ]] || {
+                log "ERRO" "❌ Suportado apenas Debian 12. Detectado: $SISTEMA $VERSAO"
+                exit 1
+            }
+            ;;
+        *)
+            log "AVISO" "⚠️ Sistema não totalmente testado: $SISTEMA $VERSAO"
+            ;;
+    esac
+}
+
+# Verificar dependências com mais detalhes
+verificar_dependencias() {
+    local DEPENDENCIAS=(
+        "ntfs-3g:mount.ntfs-3g"
+        "hfsprogs:fsck.hfsplus"
+        "exfat-fuse:mount.exfat-fuse"
+        "apfs-fuse:apfs-fuse"
+    )
+
+    for dep in "${DEPENDENCIAS[@]}"; do
+        local pacote=$(echo "$dep" | cut -d: -f1)
+        local binario=$(echo "$dep" | cut -d: -f2)
+
+        if ! command -v "$binario" &> /dev/null; then
+            log "ERRO" "❌ Dependência ausente: $pacote ($binario)"
+            return 1
+        fi
+    done
+
+    log "INFO" "✅ Todas dependências verificadas"
+}
+
+# Função de log com timestamp e níveis
+log() {
+    local nivel="${1:-INFO}"
+    local mensagem="${2:-}"
+    local timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+    
+    case "$nivel" in
+        ERRO)
+            echo -e "\e[31m[$timestamp] [ERRO] $mensagem\e[0m" >&2
+            ;;
+        AVISO)
+            echo -e "\e[33m[$timestamp] [AVISO] $mensagem\e[0m" >&2
+            ;;
+        *)
+            echo -e "\e[32m[$timestamp] [INFO] $mensagem\e[0m"
+            ;;
+    esac
+}
 
 # Verificações de segurança e configurações iniciais
 set -o errexit   # Sair imediatamente se um comando falhar
@@ -1181,6 +1244,8 @@ main() {
 
 # Executar main apenas se o script for executado diretamente
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    verificar_sistema
+    verificar_dependencias
     main
 fi
 
