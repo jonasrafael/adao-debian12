@@ -1,4 +1,4 @@
-# 👨 Adão: Multipartition Mounting Maestro 
+# 👨 Adão: Multipartition Mounting Script for Debian 12
 
 ## 🏃‍♂️🪟 Sobre o Projeto
 
