@@ -99,7 +99,7 @@ carregar_modulos_kernel() {
                     echo "⚠️ Módulo NTFS não encontrado. Usando ntfs-3g..."
                     apt-get install -y ntfs-3g
                     # Criar link simbólico para módulo
-                    ln -s /usr/bin/ntfs-3g "$KERNEL_MODULES_DIR/kernel/fs/ntfs.ko" 2>/dev/null
+                    ln -sf /usr/bin/ntfs-3g "$KERNEL_MODULES_DIR/kernel/fs/ntfs.ko" 2>/dev/null
                 fi
                 ;;
             
@@ -126,28 +126,59 @@ carregar_modulos_kernel() {
     depmod -a
 }
 
+# Função para resolver conflitos de pacotes FUSE
+resolver_conflitos_fuse() {
+    echo "🔧 Resolvendo conflitos de pacotes FUSE..."
+
+    # Desinstalar pacotes conflitantes
+    apt-get remove -y --purge \
+        fuse3 \
+        gvfs-fuse \
+        sshfs \
+        xdg-desktop-portal \
+        xdg-desktop-portal-gtk \
+        ntfs-3g \
+        || true
+
+    # Limpar configurações residuais
+    dpkg -P fuse3 || true
+    apt-get clean
+    apt-get autoremove -y
+
+    # Atualizar lista de pacotes
+    apt-get update
+
+    # Forçar reconfiguração de pacotes
+    apt-get install -y -f
+
+    # Instalar pacotes FUSE de forma forçada
+    apt-get install -y --no-install-recommends \
+        fuse \
+        libfuse2 \
+        libfuse-dev \
+        libfuse3-3 \
+        libfuse3-dev \
+        || {
+            echo "❌ Falha na instalação de pacotes FUSE"
+            return 1
+        }
+
+    # Configurar alternativas
+    update-alternatives --force --install /usr/bin/fusermount fusermount /usr/bin/fusermount3 100
+    update-alternatives --force --set fusermount /usr/bin/fusermount3
+
+    return 0
+}
+
 # Função para instalar dependências de compilação FUSE
 instalar_dependencias_fuse() {
     echo "🔧 Instalando dependências FUSE..."
     
-    # Desinstalar pacotes conflitantes
-    apt-get remove -y fuse fuse3 || true
-
-    # Atualizar lista de pacotes
-    apt-get update
-    
-    # Instalar pacotes FUSE
-    apt-get install -y \
-        libfuse2 \
-        libfuse3-3 \
-        libfuse-dev \
-        libfuse3-dev \
-        fuse3 \
-        --no-install-recommends
-
-    # Configurar alternativas para FUSE
-    update-alternatives --install /usr/bin/fusermount fusermount /usr/bin/fusermount3 100
-    update-alternatives --set fusermount /usr/bin/fusermount3
+    # Resolver conflitos de pacotes
+    if ! resolver_conflitos_fuse; then
+        echo "❌ Falha ao resolver conflitos de pacotes FUSE"
+        return 1
+    fi
 
     # Verificar versões e links simbólicos
     local fuse_version=$(pkg-config --modversion fuse3 2>/dev/null)
@@ -182,11 +213,11 @@ instalar_dependencias_fuse() {
     # Criar links simbólicos
     for path in "${fuse_header_paths[@]}"; do
         if [ ! -f "/usr/include/fuse.h" ]; then
-            ln -s "$path/fuse.h" "/usr/include/fuse.h" 2>/dev/null
+            ln -sf "$path/fuse.h" "/usr/include/fuse.h" 2>/dev/null
         fi
         if [ ! -f "/usr/include/fuse3/fuse.h" ]; then
             mkdir -p /usr/include/fuse3
-            ln -s "$path/fuse.h" "/usr/include/fuse3/fuse.h" 2>/dev/null
+            ln -sf "$path/fuse.h" "/usr/include/fuse3/fuse.h" 2>/dev/null
         fi
     done
 
