@@ -5,36 +5,22 @@
 # ║ "Porque ele comeu a maçã e pulou a janela" - Montagem Inteligente de     ║
 # ║                        Dispositivos de Armazenamento                     ║
 # ╠═══════════════════════════════════════════════════════════════════════════╣
-# ║ Versão:           1.0.0                                                  ║
+# ║ Versão:           1.2.0                                                  ║
 # ║ Autor:           Jonas Rafael                                            ║
-# ║ Última Atualização: 15 de Fevereiro de 2025                              ║
+# ║ Última Atualização: 16 de Fevereiro de 2025                              ║
 # ║ Licença:         MIT                                                     ║
 # ╠═══════════════════════════════════════════════════════════════════════════╣
-# ║ Descrição:                                                               ║
-# ║ Script avançado para montagem automática e inteligente de dispositivos   ║
-# ║ de armazenamento com suporte a múltiplos sistemas de arquivos.           ║
-# ╠═══════════════════════════════════════════════════════════════════════════╣
-# ║ Recursos Principais:                                                     ║
-# ║ - Suporte a exFAT, NTFS, HFS+, APFS                                      ║
-# ║ - Montagem dinâmica de partições                                         ║
-# ║ - Tratamento de erros robusto                                            ║
-# ║ - Logging detalhado                                                      ║
-# ╠═══════════════════════════════════════════════════════════════════════════╣
-# ║ Dependências:                                                            ║
-# ║ - bash                                                                   ║
-# ║ - mount                                                                  ║
-# ║ - blkid                                                                  ║
-# ║ - ntfs-3g                                                                ║
-# ║ - exfat-fuse                                                             ║
-# ╠═══════════════════════════════════════════════════════════════════════════╣
-# ║ Uso:                                                                     ║
-# ║ sudo ./adao.sh                                                           ║
+# ║ Changelog v1.2.0:                                                        ║
+# ║ - Adicionado método de proteção do sistema de arquivos raiz              ║
+# ║ - Implementadas verificações de segurança para dispositivos externos     ║
+# ║ - Melhorada a recuperação de boot com proteções adicionais               ║
+# ║ - Suporte aprimorado para diferentes tipos de filesystem                 ║
 # ╚═══════════════════════════════════════════════════════════════════════════╝
 
 # Variáveis globais de configuração e versão
 SCRIPT_NOME="Adao"
-SCRIPT_VERSAO="1.0.0"
-SCRIPT_DATA_ATUALIZACAO="2025-02-15"
+SCRIPT_VERSAO="1.2.0"
+SCRIPT_DATA_ATUALIZACAO="2025-02-16"
 
 # Verificações de segurança e configurações iniciais
 set -o errexit   # Sair imediatamente se um comando falhar
@@ -925,6 +911,177 @@ desmontar_pontos_montagem_existentes() {
     # Recarregar tabela de partições
     partprobe 2>/dev/null
 }
+
+# Função para recuperar boot
+recuperar_boot() {
+    log "🔧 Iniciando processo de recuperação de boot..."
+
+    # Verificar privilégios de root
+    if [[ $EUID -ne 0 ]]; then
+        log "ERRO" "❌ Esta função requer privilégios de root"
+        return 1
+    fi
+
+    # Obter informações de proteção do sistema raiz
+    local root_info=$(proteger_sistema_raiz)
+    local root_device=$(echo "$root_info" | cut -d: -f1)
+    local root_uuid=$(echo "$root_info" | cut -d: -f2)
+
+    # Montar sistema de arquivos em modo de escrita
+    log "📂 Remontando sistema de arquivos em modo de escrita"
+    mount -o remount,rw /
+
+    # Backup do fstab original
+    log "💾 Criando backup do fstab"
+    cp /etc/fstab /etc/fstab.backup_$(date +"%Y%m%d_%H%M%S")
+
+    # Criar diretórios de montagem seguros
+    log "📁 Criando diretórios de montagem seguros"
+    criar_pontos_montagem
+
+    # Gerar novo fstab com opções seguras
+    log "📝 Gerando novo fstab com opções de montagem seguras"
+    local temp_fstab=$(mktemp)
+    
+    # Preservar TODAS as entradas originais do sistema
+    grep -E '^(UUID|LABEL|/dev)' /etc/fstab > "$temp_fstab"
+    
+    # Adicionar entradas para discos externos com opções de montagem seguras
+    echo "# Discos externos - Montagem segura" >> "$temp_fstab"
+    
+    # Encontrar e adicionar dispositivos externos de forma dinâmica
+    local dispositivos=()
+    while read -r dispositivo; do
+        if [[ -n "$dispositivo" && "$dispositivo" =~ ^/dev/(sd[b-z]|nvme[0-9]n[0-9])[0-9]* ]]; then
+            # Validar cada dispositivo antes de adicionar
+            if validar_dispositivo_externo "$dispositivo"; then
+                dispositivos+=("$dispositivo")
+            fi
+        fi
+    done < <(lsblk -npdo PATH,TYPE | grep "part$" | awk '{print $1}')
+
+    # Processar cada dispositivo externo
+    for dispositivo in "${dispositivos[@]}"; do
+        # Ignorar dispositivo do sistema
+        if [[ "$dispositivo" == "$root_device" ]]; then
+            continue
+        fi
+
+        # Obter UUID e tipo de filesystem
+        local uuid=""
+        local tipo_fs=""
+        uuid=$(blkid -o value -s UUID "$dispositivo")
+        tipo_fs=$(blkid -o value -s TYPE "$dispositivo")
+
+        # Definir nome do ponto de montagem
+        local nome_disco=""
+        case "$dispositivo" in
+            "/dev/sdb1") nome_disco="disco1" ;;
+            "/dev/sdc1") nome_disco="disco2" ;;
+            "/dev/sdd1") nome_disco="disco3" ;;
+            *) nome_disco="disco_extra_$(basename "$dispositivo")" ;;
+        esac
+
+        # Adicionar entrada ao fstab temporário com opções seguras
+        if [[ -n "$uuid" && -n "$tipo_fs" ]]; then
+            echo "UUID=$uuid /home/jonasrafael/discos/$nome_disco $tipo_fs noauto,nofail,x-systemd.automount,x-systemd.device-timeout=5s,uid=1000,gid=1000,utf8 0 2" >> "$temp_fstab"
+            log "INFO" "✅ Adicionando entrada para $dispositivo em /home/jonasrafael/discos/$nome_disco"
+        fi
+    done
+
+    # Substituir fstab com proteções
+    mv "$temp_fstab" /etc/fstab
+    chmod 644 /etc/fstab
+
+    # Recarregar configurações do systemd
+    log "🔄 Recarregando configurações do systemd"
+    systemctl daemon-reload
+
+    # Verificar sistema de arquivos
+    log "🔍 Verificando sistemas de arquivos"
+    for dispositivo in "${dispositivos[@]}"; do
+        # Verificação extra de segurança
+        if [[ "$dispositivo" != "$root_device" ]]; then
+            fsck -f "$dispositivo" || true
+        fi
+    done
+
+    log "✅ Recuperação de boot concluída. Reinicie o sistema."
+}
+
+# Função para identificar e proteger o dispositivo raiz do sistema
+proteger_sistema_raiz() {
+    # Identificar o dispositivo raiz do sistema
+    local root_device=""
+    local root_uuid=""
+    local root_mountpoint="/"
+
+    # Método 1: Obter dispositivo raiz do /proc/mounts
+    root_device=$(awk '$2 == "/" {print $1}' /proc/mounts)
+
+    # Método 2: Usar findmnt como backup
+    if [[ -z "$root_device" ]]; then
+        root_device=$(findmnt -n -o SOURCE /)
+    fi
+
+    # Obter UUID do dispositivo raiz
+    root_uuid=$(blkid -o value -s UUID "$root_device")
+
+    # Log de diagnóstico
+    log "🔒 Proteção do Sistema Raiz:"
+    log "   Dispositivo Raiz: $root_device"
+    log "   UUID Raiz: $root_uuid"
+
+    # Retornar dispositivo e UUID para uso em outras funções
+    echo "$root_device:$root_uuid"
+}
+
+# Função de segurança para validar dispositivos externos
+validar_dispositivo_externo() {
+    local dispositivo="$1"
+    local root_info=$(proteger_sistema_raiz)
+    local root_device=$(echo "$root_info" | cut -d: -f1)
+    local root_uuid=$(echo "$root_info" | cut -d: -f2)
+
+    # Verificações de segurança
+    if [[ -z "$dispositivo" ]]; then
+        log "ERRO" "❌ Dispositivo inválido"
+        return 1
+    fi
+
+    # Verificar se o dispositivo é o mesmo do sistema
+    if [[ "$dispositivo" == "$root_device" ]]; then
+        log "ERRO" "❌ Tentativa de modificar dispositivo do sistema raiz bloqueada"
+        return 1
+    fi
+
+    # Verificar UUID
+    local dispositivo_uuid=$(blkid -o value -s UUID "$dispositivo")
+    if [[ "$dispositivo_uuid" == "$root_uuid" ]]; then
+        log "ERRO" "❌ UUID do dispositivo coincide com UUID do sistema raiz"
+        return 1
+    fi
+
+    # Verificar se o dispositivo está em uso pelo sistema
+    if mount | grep -q "$dispositivo"; then
+        log "AVISO" "⚠️ Dispositivo $dispositivo já está montado por outro ponto do sistema"
+        return 1
+    fi
+
+    # Verificações adicionais de segurança
+    if [[ ! -b "$dispositivo" ]]; then
+        log "ERRO" "❌ Dispositivo $dispositivo não é um dispositivo de bloco válido"
+        return 1
+    fi
+
+    return 0
+}
+
+# Adicionar opção de recuperação de boot na linha de comando
+if [[ "${1:-}" == "recuperar_boot" ]]; then
+    recuperar_boot
+    exit 0
+fi
 
 # Função principal
 main() {
