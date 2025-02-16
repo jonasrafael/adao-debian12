@@ -1,6 +1,6 @@
-# 🚀 Adão: Multipartition Mounting Maestro 
+# 👨 Adão: Multipartition Mounting Maestro 
 
-## 🌈 Sobre o Projeto
+## 🏃‍♂️🪟 Sobre o Projeto
 
 `Adão` é um script shell avançado e inteligente para montagem de partições em Debian 12, projetado para entusiastas de TI, administradores de sistemas e usuários que precisam gerenciar múltiplos dispositivos de armazenamento com diferentes sistemas de arquivos.
 
@@ -8,7 +8,7 @@
 ![Debian Support](https://img.shields.io/badge/Debian-12-red)
 ![Bash](https://img.shields.io/badge/Bash-4.4+-green)
 
-## ✨ Características Principais
+## 🐧✨ Características Principais
 
 ### 🌐 Suporte Multiplataforma
 - 📁 Sistemas de Arquivos Suportados:
