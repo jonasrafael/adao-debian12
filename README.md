@@ -33,18 +33,48 @@
 
 ## 🛠 Instalação Rápida
 
+### Pré-requisitos
+- Debian 12 ou Ubuntu
+- Bash 4.4+
+- Privilégios de root
+
+### Método 1: Instalação Automática
 ```bash
-# Baixar o script
-wget https://github.com/jonasrafael/adao-script/raw/main/montar_particoes_multi.sh
+# Clone o repositório
+git clone https://github.com/jonasrafael/adao-debian12.git
 
-# Dar permissões de execução
-chmod +x montar_particoes_multi.sh
+# Entre no diretório
+cd adao-debian12
 
-# Instalar dependências (opcional, mas recomendado)
-sudo ./montar_particoes_multi.sh verificar_dependencias
+# Dê permissão de execução
+chmod +x install.sh
 
-# Mover para diretório do sistema
-sudo mv montar_particoes_multi.sh /usr/local/bin/adao
+# Instale os scripts
+sudo ./install.sh
+```
+
+### Método 2: Instalação Manual
+```bash
+# Baixe o script
+wget https://raw.githubusercontent.com/jonasrafael/adao-debian12/main/adao.sh
+
+# Dê permissão de execução
+chmod +x adao.sh
+
+# Mova para diretório do sistema
+sudo mv adao.sh /usr/local/bin/adao
+
+# Torne executável globalmente
+sudo chmod +x /usr/local/bin/adao
+```
+
+### Verificando Instalação
+```bash
+# Verifique a versão
+adao --version
+
+# Exiba ajuda
+adao --help
 ```
 
 ## 💻 Modos de Uso
