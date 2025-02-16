@@ -40,11 +40,8 @@ verificar_sistema() {
     local VERSAO=$(grep -oP '(?<=^VERSION_ID=).*' /etc/os-release | tr -d '"')
 
     case "$SISTEMA" in
-        debian)
-            [[ "$VERSAO" == "12" ]] || {
-                log "ERRO" "❌ Suportado apenas Debian 12. Detectado: $SISTEMA $VERSAO"
-                exit 1
-            }
+        debian|crunchbangplusplus)
+            log "INFO" "✅ Sistema compatível: $SISTEMA $VERSAO"
             ;;
         *)
             log "AVISO" "⚠️ Sistema não totalmente testado: $SISTEMA $VERSAO"
