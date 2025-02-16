@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# ╔═══════════════════════════════════════════════════════════════════════════╗
+# #╔═══════════════════════════════════════════════════════════════════════════╗
 # ║                               ADÃO SCRIPT                                ║
 # ║ "Porque ele comeu a maçã e pulou a janela" - Montagem Inteligente de     ║
 # ║                        Dispositivos de Armazenamento                     ║
