@@ -26,6 +26,50 @@ verificar_sistema() {
 INSTALL_DIR="/usr/local/bin"
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 
+# Instalar dependências de compilação
+instalar_dependencias_compilacao() {
+    echo "🛠️ Instalando dependências de compilação..."
+    apt-get update
+    apt-get install -y \
+        git \
+        cmake \
+        build-essential \
+        libfuse-dev \
+        libssl-dev \
+        libz-dev
+}
+
+# Instalar apfs-fuse do GitHub
+instalar_apfs_fuse() {
+    echo "🍎 Instalando apfs-fuse do GitHub..."
+    
+    # Criar diretório temporário
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+    
+    # Clonar repositório
+    git clone https://github.com/sgan81/apfs-fuse.git
+    cd apfs-fuse
+    
+    # Atualizar submódulos
+    git submodule update --init
+    
+    # Compilar
+    mkdir build
+    cd build
+    cmake ..
+    make
+    
+    # Instalar
+    make install
+    
+    # Limpar diretório temporário
+    cd /
+    rm -rf "$temp_dir"
+    
+    echo "✅ apfs-fuse instalado com sucesso!"
+}
+
 # Instalar dependências
 instalar_dependencias() {
     echo "🔧 Instalando dependências..."
@@ -36,8 +80,17 @@ instalar_dependencias() {
         exfat-fuse \
         dosfstools \
         btrfs-progs \
-        apfs-fuse \
-        fuse
+        fuse \
+        hfsutils \
+        exfat-utils \
+        libfuse2 \
+        libfuse3-dev
+
+    # Instalar dependências de compilação
+    instalar_dependencias_compilacao
+
+    # Instalar apfs-fuse
+    instalar_apfs_fuse
     
     # Verificar instalação de dependências
     local DEPENDENCIAS=(
@@ -50,6 +103,19 @@ instalar_dependencias() {
     for dep in "${DEPENDENCIAS[@]}"; do
         if ! command -v "$dep" &> /dev/null; then
             echo "⚠️ Dependência não encontrada: $dep"
+            # Tentar instalar pacotes alternativos
+            case "$dep" in
+                "fsck.hfsplus")
+                    apt-get install -y hfsprogs hfsutils
+                    ;;
+                "mount.exfat-fuse")
+                    apt-get install -y exfat-fuse exfat-utils
+                    ;;
+                "apfs-fuse")
+                    # Tentar instalar novamente
+                    instalar_apfs_fuse
+                    ;;
+            esac
         fi
     done
 }
