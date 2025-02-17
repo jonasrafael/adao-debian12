@@ -127,23 +127,65 @@ carregar_modulos_kernel() {
 }
 
 # Função para configurar ambiente de localização
-configurar_localizacao() {
-    echo "🌐 Configurando ambiente de localização..."
-    
-    # Verificar e gerar locales
-    if ! locale -a | grep -q "en_US.UTF-8"; then
-        echo "Gerando locale en_US.UTF-8..."
-        locale-gen en_US.UTF-8
-    fi
+configurar_localizacao_robusta() {
+    echo "🌐 Configurando locales de forma robusta..."
 
-    # Configurar variáveis de ambiente
-    export LANGUAGE=en_US.UTF-8
+    # Gerar locales
+    sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+    sed -i 's/^# *pt_BR.UTF-8/pt_BR.UTF-8/' /etc/locale.gen
+
+    # Regenerar locales
+    locale-gen en_US.UTF-8 pt_BR.UTF-8 > /dev/null 2>&1
+
+    # Configurar locales
+    update-locale \
+        LANG=en_US.UTF-8 \
+        LANGUAGE=en_US.UTF-8 \
+        LC_ALL=en_US.UTF-8 \
+        LC_CTYPE=en_US.UTF-8 \
+        LC_MESSAGES=en_US.UTF-8 \
+        > /dev/null 2>&1
+
+    # Exportar variáveis
     export LANG=en_US.UTF-8
+    export LANGUAGE=en_US.UTF-8
     export LC_ALL=en_US.UTF-8
     export LC_CTYPE=en_US.UTF-8
 
-    # Atualizar configurações de localização
-    update-locale LANG=en_US.UTF-8
+    # Verificar configuração
+    locale || {
+        echo "❌ Falha na configuração de locales"
+        return 1
+    }
+
+    echo "✅ Locales configurados com sucesso"
+    return 0
+}
+
+# Função para instalar dependências de filesystem
+instalar_dependencias_filesystem() {
+    echo "🔧 Instalando dependências de filesystem..."
+
+    # Atualizar repositórios
+    apt-get update
+
+    # Instalar pacotes de filesystem
+    apt-get install -y \
+        exfat-fuse \
+        exfat-utils \
+        fuse \
+        ntfs-3g \
+        hfsprogs \
+        || {
+            echo "❌ Falha na instalação de pacotes de filesystem"
+            return 1
+        }
+
+    # Limpar pacotes não utilizados
+    apt-get autoremove -y
+
+    echo "✅ Dependências de filesystem instaladas"
+    return 0
 }
 
 # Função para instalar e configurar FUSE e apfs-fuse
@@ -165,7 +207,12 @@ instalar_fuse_apfs() {
         libattr1-dev \
         zlib1g-dev \
         build-essential \
-        libssl-dev
+        libssl-dev \
+        libpcre2-dev \
+        || {
+            echo "❌ Falha na instalação de dependências"
+            return 1
+        }
 
     # Criar diretório temporário para compilação
     local temp_dir=$(mktemp -d)
@@ -189,13 +236,13 @@ instalar_fuse_apfs() {
     cd build
 
     # Configurar com CMake
-    if ! cmake ..; then
+    if ! cmake -DCMAKE_BUILD_TYPE=Release ..; then
         echo "❌ Falha na configuração do CMake"
         return 1
     fi
 
-    # Compilar
-    if ! make; then
+    # Compilar com flags para ignorar warnings
+    if ! make CXXFLAGS="-w -Wno-sign-compare -Wno-unused-parameter"; then
         echo "❌ Falha na compilação do apfs-fuse"
         return 1
     fi
@@ -224,15 +271,11 @@ instalar_fuse_apfs() {
 resolver_conflitos_fuse() {
     echo "🔧 Resolvendo conflitos de pacotes FUSE para CrunchBang++..."
 
-    # Configuração de locales
-    export LC_ALL=en_US.UTF-8
-    export LANG=en_US.UTF-8
-    export LANGUAGE=en_US.UTF-8
-
-    # Atualizar configurações de locales
-    sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
-    locale-gen en_US.UTF-8 > /dev/null 2>&1
-    update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8 > /dev/null 2>&1
+    # Configurar locales
+    if ! configurar_localizacao_robusta; then
+        echo "❌ Falha na configuração de locales"
+        return 1
+    fi
 
     # Limpar e atualizar repositórios
     apt-get clean
@@ -240,15 +283,15 @@ resolver_conflitos_fuse() {
 
     # Desinstalar pacotes conflitantes
     apt-get remove -y --purge \
-        fuse \
         fuse3 \
-        libfuse2 \
-        libfuse-dev \
-        libfuse3-3 \
-        libfuse3-dev \
         ntfs-3g \
-        exfat-fuse \
         || true
+
+    # Instalar dependências de filesystem
+    if ! instalar_dependencias_filesystem; then
+        echo "❌ Falha na instalação de dependências de filesystem"
+        return 1
+    fi
 
     # Instalar FUSE e apfs-fuse
     if ! instalar_fuse_apfs; then
