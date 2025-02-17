@@ -148,42 +148,58 @@ configurar_localizacao() {
 
 # Função para resolver conflitos de pacotes FUSE
 resolver_conflitos_fuse() {
-    echo "🔧 Resolvendo conflitos de pacotes FUSE..."
+    echo "🔧 Resolvendo conflitos de pacotes FUSE para CrunchBang++..."
 
-    # Limpar configurações e pacotes residuais
+    # Configuração de locales
+    export LC_ALL=en_US.UTF-8
+    export LANG=en_US.UTF-8
+    export LANGUAGE=en_US.UTF-8
+
+    # Atualizar configurações de locales
+    sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+    locale-gen en_US.UTF-8 > /dev/null 2>&1
+    update-locale LANG=en_US.UTF-8 LANGUAGE=en_US.UTF-8 LC_ALL=en_US.UTF-8 > /dev/null 2>&1
+
+    # Limpar e atualizar repositórios
     apt-get clean
-    apt-get autoremove -y
-
-    # Atualizar lista de pacotes
-    apt-get update
+    apt-get update -qq
 
     # Remover pacotes conflitantes
     apt-get remove -y --purge \
-        fuse3 \
-        gvfs-fuse \
-        sshfs \
-        xdg-desktop-portal \
-        xdg-desktop-portal-gtk \
-        ntfs-3g \
-        || true
-
-    # Limpar configurações residuais
-    dpkg -P fuse3 || true
-    dpkg -P ntfs-3g || true
-
-    # Forçar reconfiguração de pacotes
-    apt-get install -y -f
-
-    # Instalar pacotes FUSE
-    apt-get install -y --no-install-recommends \
         fuse \
         fuse3 \
         libfuse2 \
         libfuse-dev \
         libfuse3-3 \
         libfuse3-dev \
+        ntfs-3g \
+        exfat-fuse \
+        || true
+
+    # Forçar reconfiguração de pacotes e resolução de dependências
+    apt-get install -y -f
+
+    # Instalar pacotes FUSE com opções flexíveis
+    apt-get install -y \
+        --no-install-recommends \
+        --allow-downgrades \
+        --allow-remove-essential \
+        --allow-change-held-packages \
+        fuse \
+        fuse3 \
+        libfuse2 \
+        libfuse-dev \
+        libfuse3-3 \
+        libfuse3-dev \
+        ntfs-3g \
+        exfat-fuse \
         || {
             echo "❌ Falha na instalação de pacotes FUSE"
+            
+            # Tentar resolver dependências manualmente
+            apt-get -y -f install
+            apt-get -y --fix-broken install
+            
             return 1
         }
 
@@ -191,11 +207,13 @@ resolver_conflitos_fuse() {
     if [ -f "/usr/bin/fusermount3" ]; then
         update-alternatives --install /usr/bin/fusermount fusermount /usr/bin/fusermount3 100
         update-alternatives --set fusermount /usr/bin/fusermount3
-    else
-        echo "⚠️ Comando fusermount3 não encontrado"
-        return 1
     fi
 
+    # Adicionar suporte a sistemas de arquivos
+    modprobe fuse || true
+    modprobe ntfs3 || true
+
+    echo "✅ Conflitos de FUSE resolvidos com sucesso"
     return 0
 }
 
@@ -368,6 +386,284 @@ compilar_apfs_fuse() {
     fi
     
     echo "✅ APFS-FUSE instalado com sucesso!"
+    return 0
+}
+
+# Função para instalar dependências de compilação
+instalar_dependencias_compilacao() {
+    echo "🛠️ Instalando dependências de compilação..."
+    apt-get update
+    apt-get install -y \
+        git \
+        cmake \
+        build-essential \
+        libfuse-dev \
+        libssl-dev \
+        libz-dev \
+        libbz2-dev
+}
+
+# Instalar apfs-fuse do GitHub
+instalar_apfs_fuse() {
+    echo "🍎 Instalando apfs-fuse do GitHub..."
+    
+    # Criar diretório temporário
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+    
+    # Clonar repositório
+    if ! git clone https://github.com/sgan81/apfs-fuse.git; then
+        echo "❌ Falha ao clonar repositório do apfs-fuse"
+        return 1
+    fi
+    
+    cd apfs-fuse
+    
+    # Atualizar submódulos
+    if ! git submodule update --init; then
+        echo "❌ Falha ao atualizar submódulos do apfs-fuse"
+        return 1
+    fi
+    
+    # Preparar compilação
+    mkdir -p build
+    cd build
+    
+    # Configurar com CMake com flags adicionais
+    if ! cmake -DCMAKE_BUILD_TYPE=Release \
+               -DCMAKE_INSTALL_PREFIX=/usr/local \
+               -DBUILD_SHARED_LIBS=ON \
+               ..; then
+        echo "❌ Falha na configuração do CMake para apfs-fuse"
+        return 1
+    fi
+    
+    # Compilar com verificação de erros
+    if ! make -j$(nproc); then
+        echo "❌ Falha na compilação do apfs-fuse"
+        
+        # Tentar identificar dependências faltantes
+        echo "🔍 Verificando dependências..."
+        local missing_deps=$(find /tmp -name "*.h" | grep -E "bzlib.h|lzma.h|zlib.h" | xargs -I {} echo "Faltando: {}")
+        
+        if [ -n "$missing_deps" ]; then
+            echo "$missing_deps"
+            echo "🛠️ Tentando instalar dependências adicionais..."
+            apt-get update
+            apt-get install -y \
+                libbz2-dev \
+                liblzma-dev \
+                zlib1g-dev
+        fi
+        
+        return 1
+    fi
+    
+    # Instalar
+    if ! make install; then
+        echo "❌ Falha na instalação do apfs-fuse"
+        return 1
+    fi
+    
+    # Adicionar biblioteca ao sistema
+    if [ -f /usr/local/lib/libapfs.so ]; then
+        ldconfig
+    fi
+    
+    # Limpar diretório temporário
+    cd /
+    rm -rf "$temp_dir"
+    
+    echo "✅ apfs-fuse instalado com sucesso!"
+    return 0
+}
+
+# Instalar dependências
+instalar_dependencias() {
+    echo "🔧 Instalando dependências..."
+    apt-get update
+    apt-get install -y \
+        ntfs-3g \
+        hfsprogs \
+        exfat-fuse \
+        dosfstools \
+        btrfs-progs \
+        fuse \
+        hfsutils \
+        exfat-utils \
+        libfuse2 \
+        libfuse3-dev \
+        liblzma-dev \
+        zlib1g-dev
+
+    # Instalar dependências de compilação
+    instalar_dependencias_compilacao
+
+    # Instalar apfs-fuse com tratamento de erro
+    if ! instalar_apfs_fuse; then
+        echo "⚠️ Falha na instalação do apfs-fuse. Tentando método alternativo..."
+        
+        # Método alternativo: baixar binário pré-compilado
+        local temp_dir=$(mktemp -d)
+        cd "$temp_dir"
+        
+        if wget https://github.com/sgan81/apfs-fuse/releases/latest/download/apfs-fuse-linux-x86_64.tar.gz; then
+            tar -xzvf apfs-fuse-linux-x86_64.tar.gz
+            cp apfs-fuse /usr/local/bin/
+            cp apfs-fuse-static /usr/local/bin/
+            chmod +x /usr/local/bin/apfs-fuse*
+            echo "✅ Instalação alternativa do apfs-fuse concluída"
+        else
+            echo "❌ Falha na instalação alternativa do apfs-fuse"
+        fi
+        
+        cd /
+        rm -rf "$temp_dir"
+    fi
+    
+    # Verificar instalação de dependências
+    local DEPENDENCIAS=(
+        "mount.ntfs-3g"
+        "fsck.hfsplus"
+        "mount.exfat-fuse"
+        "apfs-fuse"
+    )
+
+    for dep in "${DEPENDENCIAS[@]}"; do
+        if ! command -v "$dep" &> /dev/null; then
+            echo "⚠️ Dependência não encontrada: $dep"
+            # Tentar instalar pacotes alternativos
+            case "$dep" in
+                "fsck.hfsplus")
+                    apt-get install -y hfsprogs hfsutils
+                    ;;
+                "mount.exfat-fuse")
+                    apt-get install -y exfat-fuse exfat-utils
+                    ;;
+                "apfs-fuse")
+                    # Última tentativa de instalação
+                    instalar_apfs_fuse || true
+                    ;;
+            esac
+        fi
+    done
+}
+
+# Instalar scripts
+instalar_scripts() {
+    local scripts=(
+        "adao.sh:adao"
+        "calcular-consumo.sh:calcular-consumo"
+    )
+
+    for script in "${scripts[@]}"; do
+        local source_name=$(echo "$script" | cut -d: -f1)
+        local target_name=$(echo "$script" | cut -d: -f2)
+        local source_paths=(
+            "$SCRIPT_DIR/$source_name"
+            "$HOME/$source_name"
+            "/Users/jonasrafael/$source_name"
+        )
+
+        local found=false
+        for path in "${source_paths[@]}"; do
+            if [ -f "$path" ]; then
+                cp "$path" "$INSTALL_DIR/$target_name"
+                chmod +x "$INSTALL_DIR/$target_name"
+                echo "✅ Instalado: $target_name de $path"
+                found=true
+                break
+            fi
+        done
+
+        if [ "$found" = false ]; then
+            echo "❌ Script $source_name não encontrado"
+        fi
+    done
+}
+
+# Configurações adicionais
+configuracoes_sistema() {
+    echo "🔒 Configurando montagem de sistemas de arquivos..."
+    
+    # Ajustar configurações de montagem
+    sed -i 's/^MOUNTOPTIONS=.*/MOUNTOPTIONS="user,exec,utf8,uid=1000,gid=1000"/' /etc/adduser.conf
+    
+    # Adicionar suporte FUSE para usuários não-root
+    if ! grep -q "user_allow_other" /etc/fuse.conf; then
+        echo "user_allow_other" >> /etc/fuse.conf
+    fi
+}
+
+# Função para configurar Samba e compartilhamento de discos
+configurar_samba_discos() {
+    echo "🖥️ Configurando Samba e compartilhamento de discos..."
+
+    # Criar diretório de discos se não existir
+    mkdir -p /home/jonas/discos
+
+    # Instalar Samba
+    apt-get update -qq
+    apt-get install -y samba cifs-utils
+
+    # Configurar permissões do diretório
+    chown -R jonas:jonas /home/jonas/discos
+    chmod -R 775 /home/jonas/discos
+
+    # Verificar se usuário jonas existe
+    if ! id "jonas" &>/dev/null; then
+        echo "❌ Usuário jonas não encontrado. Criando usuário..."
+        adduser --disabled-password --gecos "" jonas
+    fi
+
+    # Configurar Samba para compartilhamento
+    local SAMBA_CONFIG="/etc/samba/smb.conf"
+    
+    # Backup da configuração original
+    cp "$SAMBA_CONFIG" "${SAMBA_CONFIG}.bak" 2>/dev/null
+
+    # Limpar configurações anteriores de compartilhamento
+    sed -i '/\[discos\]/,/^$/d' "$SAMBA_CONFIG"
+
+    # Adicionar configuração de compartilhamento
+    cat << EOF >> "$SAMBA_CONFIG"
+
+[discos]
+    path = /home/jonas/discos
+    browseable = yes
+    read only = no
+    writable = yes
+    guest ok = no
+    valid users = jonas
+    create mask = 0775
+    directory mask = 0775
+    force user = jonas
+    force group = jonas
+EOF
+
+    # Gerar senha aleatória segura
+    local SAMBA_PASS=$(openssl rand -base64 12)
+    
+    # Adicionar usuário jonas ao Samba com senha segura
+    (echo "$SAMBA_PASS"; echo "$SAMBA_PASS") | smbpasswd -a jonas
+    
+    # Salvar senha em arquivo seguro para referência
+    echo "Senha Samba para usuário jonas: $SAMBA_PASS" > /home/jonas/samba_password.txt
+    chmod 600 /home/jonas/samba_password.txt
+    chown jonas:jonas /home/jonas/samba_password.txt
+
+    # Reiniciar serviço Samba
+    systemctl restart smbd
+    systemctl enable smbd
+
+    # Configurar firewall para Samba (se UFW estiver ativo)
+    if command -v ufw &> /dev/null; then
+        ufw allow from any to any port 445 proto tcp comment "Samba"
+        ufw allow from any to any port 139 proto tcp comment "Samba"
+    fi
+
+    echo "✅ Samba configurado com sucesso para compartilhamento de discos"
+    echo "📝 Senha do Samba salva em /home/jonas/samba_password.txt"
     return 0
 }
 
@@ -603,6 +899,78 @@ configuracoes_sistema() {
     fi
 }
 
+# Função para configurar Samba e compartilhamento de discos
+configurar_samba_discos() {
+    echo "🖥️ Configurando Samba e compartilhamento de discos..."
+
+    # Criar diretório de discos se não existir
+    mkdir -p /home/jonas/discos
+
+    # Instalar Samba
+    apt-get update -qq
+    apt-get install -y samba cifs-utils
+
+    # Configurar permissões do diretório
+    chown -R jonas:jonas /home/jonas/discos
+    chmod -R 775 /home/jonas/discos
+
+    # Verificar se usuário jonas existe
+    if ! id "jonas" &>/dev/null; then
+        echo "❌ Usuário jonas não encontrado. Criando usuário..."
+        adduser --disabled-password --gecos "" jonas
+    fi
+
+    # Configurar Samba para compartilhamento
+    local SAMBA_CONFIG="/etc/samba/smb.conf"
+    
+    # Backup da configuração original
+    cp "$SAMBA_CONFIG" "${SAMBA_CONFIG}.bak" 2>/dev/null
+
+    # Limpar configurações anteriores de compartilhamento
+    sed -i '/\[discos\]/,/^$/d' "$SAMBA_CONFIG"
+
+    # Adicionar configuração de compartilhamento
+    cat << EOF >> "$SAMBA_CONFIG"
+
+[discos]
+    path = /home/jonas/discos
+    browseable = yes
+    read only = no
+    writable = yes
+    guest ok = no
+    valid users = jonas
+    create mask = 0775
+    directory mask = 0775
+    force user = jonas
+    force group = jonas
+EOF
+
+    # Gerar senha aleatória segura
+    local SAMBA_PASS=$(openssl rand -base64 12)
+    
+    # Adicionar usuário jonas ao Samba com senha segura
+    (echo "$SAMBA_PASS"; echo "$SAMBA_PASS") | smbpasswd -a jonas
+    
+    # Salvar senha em arquivo seguro para referência
+    echo "Senha Samba para usuário jonas: $SAMBA_PASS" > /home/jonas/samba_password.txt
+    chmod 600 /home/jonas/samba_password.txt
+    chown jonas:jonas /home/jonas/samba_password.txt
+
+    # Reiniciar serviço Samba
+    systemctl restart smbd
+    systemctl enable smbd
+
+    # Configurar firewall para Samba (se UFW estiver ativo)
+    if command -v ufw &> /dev/null; then
+        ufw allow from any to any port 445 proto tcp comment "Samba"
+        ufw allow from any to any port 139 proto tcp comment "Samba"
+    fi
+
+    echo "✅ Samba configurado com sucesso para compartilhamento de discos"
+    echo "📝 Senha do Samba salva em /home/jonas/samba_password.txt"
+    return 0
+}
+
 # Executar instalação
 main() {
     # Verificar requisitos antes de iniciar
@@ -624,6 +992,7 @@ main() {
     instalar_dependencias
     instalar_scripts
     configuracoes_sistema
+    configurar_samba_discos
     
     echo "🎉 Instalação do Adão concluída no CrunchBang++!"
 }
