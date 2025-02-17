@@ -259,6 +259,41 @@ calcular_overhead() {
     echo "$consumo_overhead"
 }
 
+# Função para calcular custos energéticos
+calcular_custos_energia() {
+    local consumo_total=$1
+    local custo_kwh=$2
+
+    # Cálculos de consumo
+    local consumo_diario=$(echo "$consumo_total * 24 / 1000" | bc -l)
+    local consumo_semanal=$(echo "$consumo_diario * 7" | bc -l)
+    local consumo_mensal=$(echo "$consumo_diario * 30" | bc -l)
+
+    # Cálculos de custo
+    local custo_diario=$(echo "$consumo_diario * $custo_kwh" | bc -l)
+    local custo_semanal=$(echo "$consumo_semanal * $custo_kwh" | bc -l)
+    local custo_mensal=$(echo "$consumo_mensal * $custo_kwh" | bc -l)
+
+    # Formatação com duas casas decimais
+    consumo_diario=$(printf "%.2f" "$consumo_diario")
+    consumo_semanal=$(printf "%.2f" "$consumo_semanal")
+    consumo_mensal=$(printf "%.2f" "$consumo_mensal")
+    custo_diario=$(printf "%.2f" "$custo_diario")
+    custo_semanal=$(printf "%.2f" "$custo_semanal")
+    custo_mensal=$(printf "%.2f" "$custo_mensal")
+
+    # Log de custos
+    {
+        log " Detalhamento de Consumo e Custo:"
+        printf "   Consumo Diário:   %.2f kWh (R$ %.2f)\n" "$consumo_diario" "$custo_diario"
+        printf "   Consumo Semanal:  %.2f kWh (R$ %.2f)\n" "$consumo_semanal" "$custo_semanal"
+        printf "   Consumo Mensal:   %.2f kWh (R$ %.2f)\n" "$consumo_mensal" "$custo_mensal"
+    } >&2
+
+    # Retornar valores para uso posterior, se necessário
+    echo "$consumo_diario,$consumo_semanal,$consumo_mensal,$custo_diario,$custo_semanal,$custo_mensal"
+}
+
 # Função principal de cálculo
 calcular_consumo_total() {
     local consumo_cpu=$(calcular_consumo_cpu)
@@ -267,32 +302,24 @@ calcular_consumo_total() {
     local overhead=$(calcular_overhead "$consumo_cpu" "$consumo_hds" "$consumo_ram")
     
     local consumo_total=$((consumo_cpu + consumo_hds + consumo_ram + overhead))
-    local consumo_diario=$((consumo_total * 24))
-    local consumo_mensal=$((consumo_diario * 30))
-    
-    # Obter custo do kWh
     local custo_kwh=$(obter_custo_kwh)
-    local custo_mensal=$(echo "scale=2; $consumo_mensal * $custo_kwh / 1000" | bc)
 
+    # Log de resumo de consumo
     log " Resumo de Consumo de Energia:"
     printf "   CPU:            %dW\n" "$consumo_cpu"
     printf "   HDs:            %dW\n" "$consumo_hds"
     printf "   RAM:            %dW\n" "$consumo_ram"
     printf "   Overhead:       %dW\n" "$overhead"
     printf "   Consumo Total:  %dW\n" "$consumo_total"
-    echo ""
-    echo "Estimativas:"
-    printf "   Consumo Diário:  %d Wh\n" "$consumo_diario"
-    printf "   Consumo Mensal: %d Wh (%d kWh)\n" "$consumo_mensal" "$((consumo_mensal / 1000))"
-    printf "   Custo Mensal:   R$ %.2f (kWh: R$ %.2f)\n" "$custo_mensal" "$custo_kwh"
 
-    # Dicas específicas para CrunchBang++
-    if [[ "$SISTEMA" == "crunchbangplusplus" ]]; then
-        log " Dicas de Economia para CrunchBang++:"
-        echo "   - Use gerenciadores de energia leves"
-        echo "   - Otimize inicialização do sistema"
-        echo "   - Considere desabilitar serviços não essenciais"
-    fi
+    # Calcular custos detalhados
+    calcular_custos_energia "$consumo_total" "$custo_kwh"
+
+    # Dicas de economia
+    log " Dicas de Economia de Energia:"
+    echo "   - Desligue dispositivos não utilizados"
+    echo "   - Use modo de economia de energia"
+    echo "   - Considere substituir HDs por SSDs"
 }
 
 # Verificar privilégios
@@ -307,8 +334,10 @@ verificar_dependencias
 # Executar cálculo
 calcular_consumo_total
 
-# Dicas gerais de economia
-log " Dicas de Economia de Energia:"
-echo "   - Desligue dispositivos não utilizados"
-echo "   - Use modo de economia de energia"
-echo "   - Considere substituir HDs por SSDs"
+# Dicas específicas para CrunchBang++
+if [[ "$SISTEMA" == "crunchbangplusplus" ]]; then
+    log " Dicas de Economia para CrunchBang++:"
+    echo "   - Use gerenciadores de energia leves"
+    echo "   - Otimize inicialização do sistema"
+    echo "   - Considere desabilitar serviços não essenciais"
+fi
