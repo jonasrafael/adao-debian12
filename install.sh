@@ -146,6 +146,80 @@ configurar_localizacao() {
     update-locale LANG=en_US.UTF-8
 }
 
+# Função para instalar e configurar FUSE e apfs-fuse
+instalar_fuse_apfs() {
+    echo "🔧 Instalando FUSE e preparando apfs-fuse..."
+
+    # Atualizar repositórios
+    apt-get update
+
+    # Instalar dependências necessárias
+    apt-get install -y \
+        fuse \
+        libfuse3-dev \
+        bzip2 \
+        libbz2-dev \
+        cmake \
+        gcc \
+        git \
+        libattr1-dev \
+        zlib1g-dev \
+        build-essential \
+        libssl-dev
+
+    # Criar diretório temporário para compilação
+    local temp_dir=$(mktemp -d)
+    cd "$temp_dir"
+
+    # Clonar repositório apfs-fuse
+    if ! git clone https://github.com/sgan81/apfs-fuse.git; then
+        echo "❌ Falha ao clonar repositório apfs-fuse"
+        return 1
+    fi
+
+    # Entrar no diretório do projeto
+    cd apfs-fuse
+
+    # Inicializar e atualizar submódulos
+    git submodule init
+    git submodule update
+
+    # Preparar compilação
+    mkdir -p build
+    cd build
+
+    # Configurar com CMake
+    if ! cmake ..; then
+        echo "❌ Falha na configuração do CMake"
+        return 1
+    fi
+
+    # Compilar
+    if ! make; then
+        echo "❌ Falha na compilação do apfs-fuse"
+        return 1
+    fi
+
+    # Instalar
+    if ! make install; then
+        echo "❌ Falha na instalação do apfs-fuse"
+        return 1
+    fi
+
+    # Limpar diretório temporário
+    cd /
+    rm -rf "$temp_dir"
+
+    # Verificar instalação
+    if ! command -v apfs-fuse &> /dev/null; then
+        echo "❌ Instalação do apfs-fuse não encontrada"
+        return 1
+    fi
+
+    echo "✅ FUSE e apfs-fuse instalados com sucesso!"
+    return 0
+}
+
 # Função para resolver conflitos de pacotes FUSE
 resolver_conflitos_fuse() {
     echo "🔧 Resolvendo conflitos de pacotes FUSE para CrunchBang++..."
@@ -164,7 +238,7 @@ resolver_conflitos_fuse() {
     apt-get clean
     apt-get update -qq
 
-    # Remover pacotes conflitantes
+    # Desinstalar pacotes conflitantes
     apt-get remove -y --purge \
         fuse \
         fuse3 \
@@ -176,32 +250,11 @@ resolver_conflitos_fuse() {
         exfat-fuse \
         || true
 
-    # Forçar reconfiguração de pacotes e resolução de dependências
-    apt-get install -y -f
-
-    # Instalar pacotes FUSE com opções flexíveis
-    apt-get install -y \
-        --no-install-recommends \
-        --allow-downgrades \
-        --allow-remove-essential \
-        --allow-change-held-packages \
-        fuse \
-        fuse3 \
-        libfuse2 \
-        libfuse-dev \
-        libfuse3-3 \
-        libfuse3-dev \
-        ntfs-3g \
-        exfat-fuse \
-        || {
-            echo "❌ Falha na instalação de pacotes FUSE"
-            
-            # Tentar resolver dependências manualmente
-            apt-get -y -f install
-            apt-get -y --fix-broken install
-            
-            return 1
-        }
+    # Instalar FUSE e apfs-fuse
+    if ! instalar_fuse_apfs; then
+        echo "❌ Falha na instalação de FUSE e apfs-fuse"
+        return 1
+    fi
 
     # Configurar alternativas de montagem
     if [ -f "/usr/bin/fusermount3" ]; then
@@ -214,63 +267,6 @@ resolver_conflitos_fuse() {
     modprobe ntfs3 || true
 
     echo "✅ Conflitos de FUSE resolvidos com sucesso"
-    return 0
-}
-
-# Função para instalar dependências de compilação FUSE
-instalar_dependencias_fuse() {
-    echo "🔧 Instalando dependências FUSE..."
-    
-    # Configurar localização
-    configurar_localizacao
-
-    # Resolver conflitos de pacotes
-    if ! resolver_conflitos_fuse; then
-        echo "❌ Falha ao resolver conflitos de pacotes FUSE"
-        return 1
-    fi
-
-    # Verificar versões e links simbólicos
-    local fuse_version=$(pkg-config --modversion fuse3 2>/dev/null)
-    if [ -n "$fuse_version" ]; then
-        echo "✅ FUSE3 instalado: versão $fuse_version"
-    else
-        echo "❌ Falha na instalação do FUSE3"
-        return 1
-    fi
-
-    # Criar links simbólicos para cabeçalhos
-    local fuse_include_dirs=(
-        "/usr/include/fuse3"
-        "/usr/local/include/fuse3"
-        "/usr/include"
-        "/usr/local/include"
-    )
-
-    local fuse_header_paths=()
-    for dir in "${fuse_include_dirs[@]}"; do
-        if [ -f "$dir/fuse.h" ]; then
-            fuse_header_paths+=("$dir")
-        fi
-    done
-
-    # Configurar links simbólicos
-    if [ ${#fuse_header_paths[@]} -eq 0 ]; then
-        echo "❌ Cabeçalhos FUSE não encontrados"
-        return 1
-    fi
-
-    # Criar links simbólicos
-    for path in "${fuse_header_paths[@]}"; do
-        if [ ! -f "/usr/include/fuse.h" ]; then
-            ln -sf "$path/fuse.h" "/usr/include/fuse.h" 2>/dev/null
-        fi
-        if [ ! -f "/usr/include/fuse3/fuse.h" ]; then
-            mkdir -p /usr/include/fuse3
-            ln -sf "$path/fuse.h" "/usr/include/fuse3/fuse.h" 2>/dev/null
-        fi
-    done
-
     return 0
 }
 
@@ -304,7 +300,7 @@ instalar_dependencias_especificas() {
     done
 
     # Instalar dependências FUSE
-    if ! instalar_dependencias_fuse; then
+    if ! instalar_fuse_apfs; then
         echo "❌ Falha na instalação das dependências FUSE"
         return 1
     fi
@@ -312,7 +308,7 @@ instalar_dependencias_especificas() {
     # Instalar apfs-fuse se não estiver presente
     if ! command -v apfs-fuse &> /dev/null; then
         echo "🍎 Instalando apfs-fuse..."
-        compilar_apfs_fuse || {
+        instalar_fuse_apfs || {
             echo "❌ Falha na instalação do APFS-FUSE"
             return 1
         }
