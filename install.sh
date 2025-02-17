@@ -126,11 +126,38 @@ carregar_modulos_kernel() {
     depmod -a
 }
 
+# Função para configurar ambiente de localização
+configurar_localizacao() {
+    echo "🌐 Configurando ambiente de localização..."
+    
+    # Verificar e gerar locales
+    if ! locale -a | grep -q "en_US.UTF-8"; then
+        echo "Gerando locale en_US.UTF-8..."
+        locale-gen en_US.UTF-8
+    fi
+
+    # Configurar variáveis de ambiente
+    export LANGUAGE=en_US.UTF-8
+    export LANG=en_US.UTF-8
+    export LC_ALL=en_US.UTF-8
+    export LC_CTYPE=en_US.UTF-8
+
+    # Atualizar configurações de localização
+    update-locale LANG=en_US.UTF-8
+}
+
 # Função para resolver conflitos de pacotes FUSE
 resolver_conflitos_fuse() {
     echo "🔧 Resolvendo conflitos de pacotes FUSE..."
 
-    # Desinstalar pacotes conflitantes
+    # Limpar configurações e pacotes residuais
+    apt-get clean
+    apt-get autoremove -y
+
+    # Atualizar lista de pacotes
+    apt-get update
+
+    # Remover pacotes conflitantes
     apt-get remove -y --purge \
         fuse3 \
         gvfs-fuse \
@@ -142,18 +169,15 @@ resolver_conflitos_fuse() {
 
     # Limpar configurações residuais
     dpkg -P fuse3 || true
-    apt-get clean
-    apt-get autoremove -y
-
-    # Atualizar lista de pacotes
-    apt-get update
+    dpkg -P ntfs-3g || true
 
     # Forçar reconfiguração de pacotes
     apt-get install -y -f
 
-    # Instalar pacotes FUSE de forma forçada
+    # Instalar pacotes FUSE
     apt-get install -y --no-install-recommends \
         fuse \
+        fuse3 \
         libfuse2 \
         libfuse-dev \
         libfuse3-3 \
@@ -163,9 +187,14 @@ resolver_conflitos_fuse() {
             return 1
         }
 
-    # Configurar alternativas
-    update-alternatives --force --install /usr/bin/fusermount fusermount /usr/bin/fusermount3 100
-    update-alternatives --force --set fusermount /usr/bin/fusermount3
+    # Configurar alternativas de montagem
+    if [ -f "/usr/bin/fusermount3" ]; then
+        update-alternatives --install /usr/bin/fusermount fusermount /usr/bin/fusermount3 100
+        update-alternatives --set fusermount /usr/bin/fusermount3
+    else
+        echo "⚠️ Comando fusermount3 não encontrado"
+        return 1
+    fi
 
     return 0
 }
@@ -174,6 +203,9 @@ resolver_conflitos_fuse() {
 instalar_dependencias_fuse() {
     echo "🔧 Instalando dependências FUSE..."
     
+    # Configurar localização
+    configurar_localizacao
+
     # Resolver conflitos de pacotes
     if ! resolver_conflitos_fuse; then
         echo "❌ Falha ao resolver conflitos de pacotes FUSE"
